@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#1f3a5f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Inflekt OS">
 <title>Inflekt OS</title>
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--ink:#1b1f24;--mute:#6a737d;--line:#e3e6ea;--pri:#1f3a5f;--pri-ink:#fff;--ok:#1a7f4b;--warn:#b54708;--bad:#b42318}
@@ -409,6 +414,7 @@ function renderSettings(m){
     $('#j_s').onclick=async()=>{try{const j=JSON.parse($('#j_c').value);await mutate('config',()=>j,'config');toast('Saved')}catch(e){toast('Invalid JSON or write failed')}};
   }
 }
+if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
 if(S.conn.repo&&S.conn.token)loadAll();else render();
 </script>
 </body>
