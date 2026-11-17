@@ -73,7 +73,7 @@ function briefData(d,now){
   if(touched<(c.outreachPerWeek||5))f.push('Only '+touched+' outreach touches in 7 days (goal '+(c.outreachPerWeek||5)+')');
   const quiet=[];
   (c.tracks||[]).filter(t=>t.active!==false).forEach(t=>{const ds=all.filter(x=>x.track===t.name).map(x=>Math.max(pd(x.doneOn)||0,pd(x.created)||0));const last=ds.length?Math.max(...ds):0;if(!last||diff(new Date(last),td)>(c.quietDays||7))quiet.push(t.name.replace(/^T\d+\s+/,'')+' ('+t.owner+')')});
-  if(quiet.length)f.push('No activity in '+(c.quietDays||7)+'+ days: '+quiet.join(', '));
+  if(quiet.length)f.push({t:'No activity in '+(c.quietDays||7)+'+ days:',sub:quiet});
   return{date:td,owners,waiting,closed,flags:f.slice(0,10),max};
 }
 
@@ -90,10 +90,10 @@ function buildBrief(d,now){
   if(b.closed.length){L.push('CLOSED THIS WEEK ('+b.closed.length+')');b.closed.slice(0,6).forEach(t=>L.push(fshort(pd(t.doneOn))+' | '+t.title+' | '+(t.owner||'-')));L.push('')}
   L.push('WATCH-OUTS');
   if(!b.flags.length)L.push('Nothing flagged.');
-  b.flags.forEach(x=>L.push('- '+x));
+  b.flags.forEach(x=>{if(typeof x==='string')L.push('- '+x);else{L.push('- '+x.t);x.sub.forEach(s=>L.push('   - '+s))}});
   return L.join('\n');
 }
-const CORE_V=3;
+const CORE_V=4;
 const C={CORE_V,pad,ymd,pd,today,addD,diff,fshort,fday,uid,DOW,computeAdds,mk,byDue,isOpen,band,lastNote,statusText,dueText,briefData,buildBrief};
 if(typeof module!=='undefined'&&module.exports)module.exports=C;else Object.assign(root,C);
 })(typeof window!=='undefined'?window:globalThis);

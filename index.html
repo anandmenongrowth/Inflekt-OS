@@ -59,6 +59,7 @@ label{font-size:14px;font-weight:600;color:var(--mute)}
 .opt{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:14px;border:2px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);font-size:17px;font-weight:600;margin:7px 0}
 .opt.sel{border-color:var(--brand)}
 .flags{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:6px 14px 6px 30px;margin:0}
+.flags ul{margin:6px 0 2px;padding-left:20px;list-style:circle}.flags ul li{border:0;padding:3px 0;font-size:14px;color:var(--mute)}
 .flags li{padding:8px 0;font-size:14.5px;border-bottom:1px solid var(--line)}.flags li:last-child{border-bottom:0}
 .P1{color:var(--bad);font-weight:700}.P2{color:var(--warn)}.P3{color:var(--mute)}
 .over{color:var(--bad)}
@@ -86,10 +87,10 @@ label{font-size:14px;font-weight:600;color:var(--mute)}
 <div id="modal"><div class="in" id="mbody"></div></div>
 <div class="toast" id="toast"></div>
 
-<script src="core.js?v=3"></script>
+<script src="core.js?v=4"></script>
 <script>
 /* ============ tiny utils ============ */
-const coreOK=(typeof CORE_V!=='undefined'&&CORE_V>=3);
+const coreOK=(typeof CORE_V!=='undefined'&&CORE_V>=4);
 if(!coreOK&&!sessionStorage.getItem('rl')){sessionStorage.setItem('rl','1');(async()=>{try{for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister();for(const k of await caches.keys())await caches.delete(k)}catch(e){}location.reload()})()}
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -106,13 +107,37 @@ const API='https://api.github.com/repos/';
 async function gh(path,opt={}){
   return fetch(API+S.conn.repo+path,{cache:'no-store',...opt,headers:{Authorization:'Bearer '+S.conn.token,Accept:'application/vnd.github+json',...(opt.headers||{})}});
 }
+const RC={};   // path -> {etag,json,sha}: conditional requests (304) cost nothing against GitHub's rate limit
 async function rd(path,def){
-  const r=await gh('/contents/'+path);
+  const c=RC[path],h={};if(c&&c.etag)h['If-None-Match']=c.etag;
+  const r=await gh('/contents/'+path,{headers:h});
+  if(r.status===304&&c)return{json:JSON.parse(JSON.stringify(c.json)),sha:c.sha,same:true};
   if(r.status===404)return{json:def,sha:null};
   if(!r.ok)throw new Error(path+': '+r.status);
-  const j=await r.json();
-  return{json:JSON.parse(b64d(j.content)),sha:j.sha};
+  const j=await r.json(),json=JSON.parse(b64d(j.content));
+  RC[path]={etag:r.headers.get('ETag'),json,sha:j.sha};
+  return{json:JSON.parse(JSON.stringify(json)),sha:j.sha};
 }
+/** Optimistic write: update the screen instantly, save to GitHub in the background, roll back + tell the user if it fails. */
+let pending=0;
+function optimistic(name,fn,msg){
+  const before=JSON.stringify(S.d[name]);
+  try{const out=fn(JSON.parse(before));if(out!==false)S.d[name]=out}catch(e){}
+  render();pending++;
+  return mutate(name,fn,msg).then(()=>toast('Saved')).catch(e=>{S.d[name]=JSON.parse(before);render();toast('Could not save - '+e.message)}).finally(()=>{pending--});
+}
+/** Pull other people's changes: every 45s while open, and whenever the app comes back to the foreground. */
+async function syncData(){
+  if(pending||document.hidden||!S.ready||!(S.conn.repo&&S.conn.token))return;
+  try{
+    let changed=false;
+    for(const k of Object.keys(FILES)){const r=await rd('data/'+k+'.json',FILES[k]);if(!r.same&&JSON.stringify(r.json)!==JSON.stringify(S.d[k])){S.d[k]=r.json;changed=true}}
+    $('#sync').textContent='synced '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    if(changed){if($('#modal').style.display==='flex')S.dirty=true;else if(S.tab!=='set'&&!(S.tab==='capture'&&CAP.text))render()}
+  }catch(e){}
+}
+setInterval(syncData,45000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncData()});
 async function wrRaw(path,text,sha,msg){
   const body={message:msg,content:b64e(text)};if(sha)body.sha=sha;
   return gh('/contents/'+path,{method:'PUT',body:JSON.stringify(body)});
@@ -248,7 +273,7 @@ function md(src){
 
 /* ============ modal helpers ============ */
 function modal(html){$('#mbody').innerHTML=html;$('#modal').style.display='flex'}
-function closeModal(){$('#modal').style.display='none';$('#mbody').innerHTML=''}
+function closeModal(){$('#modal').style.display='none';$('#mbody').innerHTML='';if(S.dirty){S.dirty=false;render()}}
 $('#modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal()});
 function form(title,fields,onOk,okLabel){
   modal('<h2 style="margin-top:0">'+esc(title)+'</h2>'+fields.map(f=>{
@@ -320,12 +345,12 @@ function statusModal(t){
       if(pick==='doing'&&!eta)return toast('Add the expected deadline');
       if(pick==='waiting'&&!who.trim())return toast('Say who you are waiting on');
       if(pick==='dropped'&&!txt.trim())return toast('Add a one-line reason');
-      try{await mutate('tasks',l=>{const x=l.find(y=>y.id===t.id);if(!x)return false;
+      try{closeModal();optimistic('tasks',l=>{const x=l.find(y=>y.id===t.id);if(!x)return false;
         if(x.status!==pick)logAdd(x,'status',ST[pick]+(pick==='doing'?', ETA '+eta:'')+(pick==='waiting'?': '+who.trim():''));
         x.status=pick;x.eta=pick==='doing'?eta:'';x.waitingOn=pick==='waiting'?who.trim():'';x.waitSince=pick==='waiting'?(t.status==='waiting'&&t.waitSince?t.waitSince:ymd(today())):'';
         x.doneOn=(pick==='done'||pick==='dropped')?ymd(today()):'';
         if(txt.trim()&&(pick==='done'||pick==='dropped'))logAdd(x,'note',(pick==='dropped'?'Dropped: ':'')+txt.trim());
-        return l},'status: '+ST[pick]);closeModal();render()}
+        return l},'status: '+ST[pick])}
       catch(er){toast(er.message)}
     };
   };
@@ -334,7 +359,7 @@ function statusModal(t){
 function noteModal(t){
   form('Add a note: '+t.title,[{k:'text',label:'What happened / what is the update? (shows under the task for everyone)',type:'area'}],async o=>{
     if(!o.text.trim())throw new Error('Write the note');
-    await mutate('tasks',l=>{const x=l.find(y=>y.id===t.id);if(!x)return false;logAdd(x,'note',o.text.trim());return l},'note');render();
+    optimistic('tasks',l=>{const x=l.find(y=>y.id===t.id);if(!x)return false;logAdd(x,'note',o.text.trim());return l},'note');
   },'Save note');
 }
 function bindTasks(root){
@@ -351,7 +376,7 @@ function renderToday(m){
    b.owners.slice().sort((x,y)=>(y.name===S.conn.me)-(x.name===S.conn.me)).map(o=>ownerSection(o.name+(o.name===S.conn.me?' (you)':''),o.total,o.tasks.length?o.tasks.map(t=>taskRow(t,{acts:false})).join(''):'<div class="tr"><span></span><span></span><span class="mute">Free - pick from backlog / BD outreach</span></div>')).join('')+
    (b.waiting.length?'<h2>Waiting on others <span class="cnt">'+b.waiting.length+'</span></h2>'+tableHtml(waitRows,'Deadline'):'')+
    (b.closed.length?'<h2>Closed this week <span class="cnt ok">'+b.closed.length+'</span></h2>'+tableHtml(b.closed.slice(0,8).map(t=>taskRow(t,{mode:'done',acts:false,owner:true})).join(''),'Done on'):'')+
-   '<h2>Watch-outs</h2>'+(b.flags.length?'<ul class="flags">'+b.flags.map(f=>'<li>'+esc(f)+'</li>').join('')+'</ul>':'<p class="mute">Nothing flagged.</p>')+
+   '<h2>Watch-outs</h2>'+(b.flags.length?'<ul class="flags">'+b.flags.map(f=>typeof f==='string'?'<li>'+esc(f)+'</li>':'<li>'+esc(f.t)+'<ul>'+f.sub.map(s=>'<li>'+esc(s)+'</li>').join('')+'</ul></li>').join('')+'</ul>':'<p class="mute">Nothing flagged.</p>')+
    '<div style="margin-top:22px"><button class="b big" id="send">Copy brief + open WhatsApp group</button><button class="g" id="ref">Refresh</button></div>';
   $('#send').onclick=()=>{copy(text);toast('Brief copied - paste in the group');window.open(c.groupLink||'https://wa.me/?text='+encodeURIComponent(text),'_blank')};
   $('#ref').onclick=loadAll;bindTasks(m);
@@ -385,12 +410,12 @@ function editTask(t){
   if(!t){fs.push({k:'tpl',label:'Claude prompt template (optional)',type:'select',opts:tpls},{k:'subject',label:'Subject for the prompt (e.g. brand name)'},{k:'context',label:'Extra context (optional)',type:'area'})}
   form(t?'Edit task':'New task',fs,async o=>{
     if(!o.title.trim())throw new Error('Task text needed');
-    if(t){await mutate('tasks',l=>{const x=l.find(y=>y.id===t.id);if(!x)return false;if((x.due||'')!==o.due){if(x.due){x.slips=(x.slips||0)+1;logAdd(x,'deadline','Deadline moved '+fshort(pd(x.due))+' to '+(o.due?fshort(pd(o.due)):'none'))}else if(o.due)logAdd(x,'deadline','Deadline set '+fshort(pd(o.due)))}
+    if(t){optimistic('tasks',l=>{const x=l.find(y=>y.id===t.id);if(!x)return false;if((x.due||'')!==o.due){if(x.due){x.slips=(x.slips||0)+1;logAdd(x,'deadline','Deadline moved '+fshort(pd(x.due))+' to '+(o.due?fshort(pd(o.due)):'none'))}else if(o.due)logAdd(x,'deadline','Deadline set '+fshort(pd(o.due)))}
         if((x.owner||'')!==o.owner)logAdd(x,'owner','Owner: '+(x.owner||'none')+' to '+(o.owner||'none'));
         Object.assign(x,{title:o.title,owner:o.owner,due:o.due,pri:o.pri,track:o.track});return l},'edit task')}
     else{const n=mk({title:o.title,owner:o.owner,due:o.due,pri:o.pri,track:o.track,source:'Manual'});if(!n.owner)n.owner=autoOwner(n);
       if(o.tpl!=='(none)')n.ai={tpl:o.tpl,subject:o.subject,context:o.context};
-      await mutate('tasks',l=>l.concat(n),'add task')}
+      optimistic('tasks',l=>l.concat(n),'add task')}
     render();
   });
 }
