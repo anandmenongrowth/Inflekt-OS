@@ -93,6 +93,7 @@ function buildBrief(d,now){
   b.flags.forEach(x=>L.push('- '+x));
   return L.join('\n');
 }
-const C={pad,ymd,pd,today,addD,diff,fshort,fday,uid,DOW,computeAdds,mk,byDue,isOpen,band,lastNote,statusText,dueText,briefData,buildBrief};
+const CORE_V=3;
+const C={CORE_V,pad,ymd,pd,today,addD,diff,fshort,fday,uid,DOW,computeAdds,mk,byDue,isOpen,band,lastNote,statusText,dueText,briefData,buildBrief};
 if(typeof module!=='undefined'&&module.exports)module.exports=C;else Object.assign(root,C);
 })(typeof window!=='undefined'?window:globalThis);
