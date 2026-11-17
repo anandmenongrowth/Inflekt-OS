@@ -1,0 +1,36 @@
+# Copy this file to  .github/workflows/morning-brief.yml  in the DATA repo (inflekt-os-data).
+# One-time: repo Settings > Secrets and variables > Actions
+#   Variables: CODE_REPO = <owner>/inflekt-os      (the public app repo)
+#   Secrets:   SMTP_USER = sender gmail address
+#              SMTP_PASS = Gmail "app password" (needs 2-step verification on that account)
+name: Morning brief
+on:
+  schedule:
+    - cron: '30 2 * * *'     # 08:00 IST. GitHub can start scheduled runs 5-30 min late.
+  workflow_dispatch: {}       # "Run workflow" button for a test
+permissions:
+  contents: write
+env:
+  TZ: Asia/Kolkata
+jobs:
+  brief:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.CODE_REPO }}
+          path: code
+      - name: Build brief + auto tasks
+        run: node code/scripts/brief-cli.js .
+      - name: Commit auto-generated tasks
+        run: |
+          git config user.name "inflekt-os-bot"
+          git config user.email "inflekt-os-bot@users.noreply.github.com"
+          git add data
+          git diff --cached --quiet || (git commit -m "auto: recurring + prep tasks" && git push)
+      - name: Email the brief
+        run: python3 code/scripts/send_mail.py
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}

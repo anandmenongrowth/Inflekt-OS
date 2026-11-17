@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1f3a5f">
+<title>Inflekt OS</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1b1f24;--mute:#6a737d;--line:#e3e6ea;--pri:#1f3a5f;--pri-ink:#fff;--ok:#1a7f4b;--warn:#b54708;--bad:#b42318}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1317;--card:#171d23;--ink:#e8ecf0;--mute:#8b96a1;--line:#27303a;--pri:#4b79b5;--pri-ink:#fff;--ok:#4cc38a;--warn:#f0a35e;--bad:#f27d72}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding-bottom:84px}
+header{position:sticky;top:0;background:var(--pri);color:var(--pri-ink);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;z-index:5}
+header b{font-size:17px}#sync{font-size:12px;opacity:.85}
+main{max-width:760px;margin:0 auto;padding:12px 16px}
+nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom);z-index:5}
+nav button{flex:1;border:0;background:none;color:var(--mute);padding:12px 2px;font-size:12px}
+nav button.on{color:var(--pri);font-weight:700;border-top:2px solid var(--pri)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0}
+h2{font-size:16px;margin:16px 0 4px}
+button.b,a.b{display:inline-block;background:var(--pri);color:var(--pri-ink);border:0;border-radius:10px;padding:10px 14px;font-size:14px;text-decoration:none;margin:4px 4px 4px 0}
+button.g{background:none;color:var(--pri);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:13px;margin:4px 4px 4px 0}
+button.s{padding:5px 9px;font-size:12px}
+input,select,textarea{width:100%;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px;font:inherit;margin:3px 0 8px}
+textarea{min-height:110px}
+label{font-size:12px;color:var(--mute)}
+pre.brief{white-space:pre-wrap;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace;margin:0}
+.row{display:flex;gap:8px;align-items:flex-start}.row>*{flex:1}
+.t{display:flex;gap:10px}.t .x{flex:1}.t small{color:var(--mute)}
+.chip{display:inline-block;border:1px solid var(--line);border-radius:99px;padding:4px 11px;margin:2px 4px 2px 0;font-size:13px;background:var(--card);color:var(--ink)}
+.chip.on{background:var(--pri);color:var(--pri-ink);border-color:var(--pri)}
+.P1{color:var(--bad);font-weight:700}.P2{color:var(--warn)}.P3{color:var(--mute)}
+.over{color:var(--bad)}.done{opacity:.5;text-decoration:line-through}
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-end;justify-content:center;z-index:9}
+#modal .in{background:var(--card);width:100%;max-width:760px;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px}
+.md pre{background:var(--bg);padding:10px;overflow:auto;border-radius:8px}.md table{border-collapse:collapse;width:100%;font-size:13px;display:block;overflow:auto}.md td,.md th{border:1px solid var(--line);padding:5px 8px}.md code{background:var(--bg);padding:1px 5px;border-radius:4px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:96px;background:#222;color:#fff;padding:9px 16px;border-radius:99px;font-size:13px;z-index:20;display:none}
+.mute{color:var(--mute)}
+</style>
+</head>
+<body>
+<header><b>Inflekt OS</b><span id="sync">not connected</span></header>
+<main id="main"></main>
+<nav id="nav"></nav>
+<div id="modal"><div class="in" id="mbody"></div></div>
+<div class="toast" id="toast"></div>
+
+<script src="core.js"></script>
+<script>
+/* ============ tiny utils ============ */
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const LS={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+const b64e=s=>btoa(unescape(encodeURIComponent(s)));
+const b64d=s=>decodeURIComponent(escape(atob(s.replace(/\n/g,''))));
+const slug=s=>String(s).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,50)||'note';
+function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',2600)}
+
+/* ============ state + GitHub sync ============ */
+const S={conn:LS.get('conn',{repo:'',token:'',me:''}),d:{},tab:'today',filter:'me',ready:false};
+const FILES={config:{},tasks:[],events:[],pipeline:[],decisions:[],imported:[]};
+const API='https://api.github.com/repos/';
+async function gh(path,opt={}){
+  return fetch(API+S.conn.repo+path,{cache:'no-store',...opt,headers:{Authorization:'Bearer '+S.conn.token,Accept:'application/vnd.github+json',...(opt.headers||{})}});
+}
+async function rd(path,def){
+  const r=await gh('/contents/'+path);
+  if(r.status===404)return{json:def,sha:null};
+  if(!r.ok)throw new Error(path+': '+r.status);
+  const j=await r.json();
+  return{json:JSON.parse(b64d(j.content)),sha:j.sha};
+}
+async function wrRaw(path,text,sha,msg){
+  const body={message:msg,content:b64e(text)};if(sha)body.sha=sha;
+  return gh('/contents/'+path,{method:'PUT',body:JSON.stringify(body)});
+}
+/** read-modify-write with retry, so simultaneous edits by 2 people merge instead of clobbering */
+async function mutate(name,fn,msg){
+  for(let i=0;i<5;i++){
+    const {json,sha}=await rd('data/'+name+'.json',FILES[name]);
+    const out=fn(json);
+    if(out===false)return false;
+    const r=await wrRaw('data/'+name+'.json',JSON.stringify(out,null,1),sha,(msg||('update '+name))+' ['+S.conn.me+']');
+    if(r.ok){S.d[name]=out;return true}
+    if(r.status!==409&&r.status!==422)throw new Error('write '+name+': '+r.status);
+  }
+  throw new Error('conflict on '+name+', try again');
+}
+async function saveText(path,text,msg){
+  let sha=null;const r0=await gh('/contents/'+path);if(r0.ok)sha=(await r0.json()).sha;
+  const r=await wrRaw(path,text,sha,msg+' ['+S.conn.me+']');
+  if(!r.ok)throw new Error('save '+path+': '+r.status);
+}
+async function listDir(dir){
+  const r=await gh('/contents/'+dir);
+  if(r.status===404)return[];
+  if(!r.ok)throw new Error(dir+': '+r.status);
+  return (await r.json()).filter(f=>f.type==='file'&&/\.md$/.test(f.name)).map(f=>f.name).sort().reverse();
+}
+async function loadAll(){
+  $('#sync').textContent='syncing…';
+  try{
+    for(const k of Object.keys(FILES)){S.d[k]=(await rd('data/'+k+'.json',FILES[k])).json}
+    await materialize();
+    S.ready=true;$('#sync').textContent='synced '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  }catch(e){$('#sync').textContent='sync failed';toast(e.message)}
+  render();
+}
+
+/* ============ automation: recurring + event prep ============ */
+async function materialize(){
+  const adds=computeAdds(S.d);if(!adds.length)return;
+  await mutate('tasks',list=>{const have=new Set(list.map(t=>t.key).filter(Boolean));const n=adds.filter(a=>!have.has(a.key));if(!n.length)return false;return list.concat(n)},'auto: recurring + prep tasks');
+}
+function autoOwner(t){ // fallback owner = track owner, else least loaded
+  const c=S.d.config,tr=(c.tracks||[]).find(x=>x.name===t.track);if(tr&&tr.owner)return tr.owner;
+  const load={};(c.team||[]).forEach(p=>load[p]=0);(S.d.tasks||[]).filter(x=>x.status!=='done'&&load[x.owner]!==undefined).forEach(x=>load[x.owner]++);
+  return Object.keys(load).sort((a,b)=>load[a]-load[b])[0]||'';
+}
+
+/* ============ brief (WhatsApp-safe plain text) ============ */
+
+/* ============ Claude hand-off ============ */
+const OUT_SUFFIX='\n\nFormat the final answer as clean markdown: a title, a 5-line summary at the top, then sections. Cite sources and flag low-confidence claims.';
+function fillTpl(body,subject,context){return body.replace(/{{subject}}/g,subject||'[subject]').replace(/{{context}}/g,context||'(none)')+OUT_SUFFIX}
+function openClaude(prompt){
+  const url='https://claude.ai/new?q='+encodeURIComponent(prompt);
+  if(url.length<7500){window.open(url,'_blank');return true}
+  copy(prompt);window.open('https://claude.ai/new','_blank');toast('Prompt too long for a link - copied. Paste in Claude.');return false;
+}
+function copy(text){
+  try{navigator.clipboard.writeText(text)}catch(e){}
+  const t=document.createElement('textarea');t.value=text;t.style.position='fixed';t.style.opacity=0;document.body.appendChild(t);t.select();try{document.execCommand('copy')}catch(e){}t.remove();
+}
+function extractPrompt(text,name){
+  const c=S.d.config;
+  return 'You are the task extractor for Inflekt OS. Today is '+ymd(today())+' ('+today().toLocaleDateString('en-GB',{weekday:'long'})+').\n'+
+  'Team: '+(c.team||[]).join(', ')+'\nTracks: '+(c.tracks||[]).map(t=>t.name).join(' | ')+'\n\n'+
+  'From the text below, return ONLY a JSON array, no prose. Each item: {"type":"task|decision|event|lead|reading","text":"short imperative","owner":"one of the team or empty","due":"YYYY-MM-DD or empty","track":"closest track or empty","priority":"P1|P2|P3","detail":"optional one line"}.\n'+
+  'Rules: set owner only if explicitly assigned or unambiguous; never invent tasks; resolve relative dates against today; decisions = things agreed; event = a dated meeting/deadline; lead = a company to approach; reading = an article/link to read; skip chit-chat.\n\n'+
+  (text?'SOURCE: '+(name||'notes')+'\n---\n'+text
+   :'SOURCE: use the Granola connector. First list my meetings from the last 24 hours'+(name?' (and prefer the one named "'+name+'")':'')+'; then read the notes of each and extract from all of them. Add a "meeting" field (meeting title) to every item. If you cannot access Granola, tell me and stop.');
+}
+
+/* ============ Google Drive import (per-person sign-in, read-only) ============ */
+let gTok=null,gExp=0;
+function loadGis(){return new Promise((res,rej)=>{if(window.google&&google.accounts&&google.accounts.oauth2)return res();const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.onload=res;s.onerror=()=>rej(new Error('Could not load Google sign-in'));document.head.appendChild(s)})}
+async function driveToken(){
+  if(gTok&&Date.now()<gExp)return gTok;
+  const cid=LS.get('gcid','');if(!cid)throw new Error('Add the Google client ID in Settings first');
+  await loadGis();
+  return new Promise((res,rej)=>{
+    const tc=google.accounts.oauth2.initTokenClient({client_id:cid,scope:'https://www.googleapis.com/auth/drive.readonly',
+      callback:r=>{if(r.error)return rej(new Error(r.error));gTok=r.access_token;gExp=Date.now()+(r.expires_in-60)*1000;LS.set('gseen',1);res(gTok)},
+      error_callback:e=>rej(new Error((e&&e.type)||'Google sign-in cancelled'))});
+    tc.requestAccessToken({prompt:LS.get('gseen',0)?'':'consent'});
+  });
+}
+async function driveList(){
+  const t=await driveToken(),folders=String(LS.get('gfolder','')).split(',').map(s=>s.trim()).filter(Boolean);
+  const since=new Date(Date.now()-21*864e5).toISOString();
+  let q="trashed=false and modifiedTime>'"+since+"' and (mimeType='application/vnd.google-apps.document' or mimeType='text/plain' or mimeType='text/markdown')";
+  if(folders.length)q+=' and ('+folders.map(f=>"'"+f+"' in parents").join(' or ')+')';
+  const r=await fetch('https://www.googleapis.com/drive/v3/files?pageSize=40&orderBy=modifiedTime%20desc&fields=files(id,name,modifiedTime,mimeType)&q='+encodeURIComponent(q),{headers:{Authorization:'Bearer '+t}});
+  if(!r.ok)throw new Error('Drive '+r.status);
+  return (await r.json()).files||[];
+}
+async function driveText(f){
+  const t=await driveToken();
+  const u=f.mimeType.startsWith('application/vnd.google-apps')?'https://www.googleapis.com/drive/v3/files/'+f.id+'/export?mimeType=text/plain':'https://www.googleapis.com/drive/v3/files/'+f.id+'?alt=media';
+  const r=await fetch(u,{headers:{Authorization:'Bearer '+t}});if(!r.ok)throw new Error('Drive '+r.status);return r.text();
+}
+async function driveModal(){
+  modal('<p class="mute">Opening Google sign-in…</p>');
+  try{
+    const files=await driveList(),done=new Set((S.d.imported||[]).map(x=>x.id));
+    modal('<h2 style="margin-top:0">Notes from your Drive (last 3 weeks)</h2>'+(files.length?files.map((f,i)=>'<div class="card" data-d="'+i+'" style="cursor:pointer;'+(done.has(f.id)?'opacity:.5':'')+'"><b>'+esc(f.name)+'</b><br><small class="mute">'+fshort(new Date(f.modifiedTime))+(done.has(f.id)?' · already imported':' · new')+'</small></div>').join(''):'<p class="mute">No documents found. Set your meeting-notes folder ID in Settings.</p>')+'<button class="g" onclick="closeModal()">Close</button>');
+    document.querySelectorAll('[data-d]').forEach(e=>e.onclick=async()=>{const f=files[+e.dataset.d];e.style.opacity=.6;
+      try{const txt=await driveText(f);CAP={name:f.name,text:txt,items:null,driveId:f.id};closeModal();S.tab='capture';render();toast('Loaded - now open in Claude to extract')}catch(er){toast(er.message)}});
+  }catch(e){modal('<p>'+esc(e.message)+'</p><button class="g" onclick="closeModal()">Close</button>')}
+}
+
+/* ============ markdown (small) ============ */
+function md(src){
+  let s=esc(src);const blocks=[];
+  s=s.replace(/```[a-z]*\n?([\s\S]*?)```/g,(_,c)=>{blocks.push('<pre>'+c+'</pre>');return '\u0001'+(blocks.length-1)+'\u0001'});
+  const inl=t=>t.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  let out='',list=null,tbl=[];
+  const flush=()=>{if(list){out+='</'+list+'>';list=null}
+    if(tbl.length){out+='<table>'+tbl.filter(r=>!/^\|?[\s:|-]+\|?$/.test(r)).map((r,i)=>'<tr>'+r.replace(/^\||\|$/g,'').split('|').map(c=>'<'+(i?'td':'th')+'>'+inl(c.trim())+'</'+(i?'td':'th')+'>').join('')+'</tr>').join('')+'</table>';tbl=[]}};
+  s.split('\n').forEach(l=>{
+    let m;
+    if(/^\s*\|/.test(l)){if(list){flush()}tbl.push(l.trim());return}
+    flush();
+    if((m=l.match(/^(#{1,4})\s+(.*)/)))out+='<h'+(m[1].length+1)+'>'+inl(m[2])+'</h'+(m[1].length+1)+'>';
+    else if((m=l.match(/^\s*[-*]\s+(.*)/))){if(list!=='ul'){flush();out+='<ul>';list='ul'}out+='<li>'+inl(m[1])+'</li>'}
+    else if((m=l.match(/^\s*\d+[.)]\s+(.*)/))){if(list!=='ol'){flush();out+='<ol>';list='ol'}out+='<li>'+inl(m[1])+'</li>'}
+    else if(/^\s*---+\s*$/.test(l))out+='<hr>';
+    else if(!l.trim())out+='';
+    else out+='<p>'+inl(l)+'</p>';
+  });
+  flush();
+  return out.replace(/\u0001(\d+)\u0001/g,(_,i)=>blocks[+i]);
+}
+
+/* ============ modal helpers ============ */
+function modal(html){$('#mbody').innerHTML=html;$('#modal').style.display='flex'}
+function closeModal(){$('#modal').style.display='none';$('#mbody').innerHTML=''}
+$('#modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal()});
+function form(title,fields,onOk,okLabel){
+  modal('<h2 style="margin-top:0">'+esc(title)+'</h2>'+fields.map(f=>{
+    const v=f.val??'';
+    if(f.type==='select')return '<label>'+f.label+'</label><select id="f_'+f.k+'">'+f.opts.map(o=>'<option'+(o===v?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select>';
+    if(f.type==='area')return '<label>'+f.label+'</label><textarea id="f_'+f.k+'">'+esc(v)+'</textarea>';
+    return '<label>'+f.label+'</label><input id="f_'+f.k+'" type="'+(f.type||'text')+'" value="'+esc(v)+'">';
+  }).join('')+'<button class="b" id="f_ok">'+(okLabel||'Save')+'</button><button class="g" onclick="closeModal()">Cancel</button>');
+  $('#f_ok').onclick=async()=>{const o={};fields.forEach(f=>o[f.k]=$('#f_'+f.k).value);try{await onOk(o);closeModal()}catch(e){toast(e.message)}};
+}
+
+/* ============ views ============ */
+const TABS=[['today','Today'],['tasks','Tasks'],['capture','Capture'],['outputs','Library'],['pipe','Pipeline'],['set','Settings']];
+function render(){
+  $('#nav').innerHTML=TABS.map(t=>'<button class="'+(S.tab===t[0]?'on':'')+'" data-tab="'+t[0]+'">'+t[1]+'</button>').join('');
+  const m=$('#main');
+  if(!S.conn.repo||!S.conn.token){S.tab='set';return renderSettings(m)}
+  if(!S.ready){m.innerHTML='<p class="mute">Loading from GitHub…</p>';return}
+  ({today:renderToday,tasks:renderTasks,capture:renderCapture,outputs:renderLibrary,pipe:renderPipe,set:renderSettings})[S.tab](m);
+}
+$('#nav').addEventListener('click',e=>{const t=e.target.dataset.tab;if(t){S.tab=t;render()}});
+
+function taskCard(t){
+  const td=today(),d=pd(t.due),od=d&&d<td&&t.status!=='done';
+  return '<div class="card t" data-id="'+t.id+'"><input type="checkbox" style="width:22px;margin:2px 0" data-act="done" '+(t.status==='done'?'checked':'')+'><div class="x">'+
+   '<div class="'+(t.status==='done'?'done':'')+'"><span class="'+t.pri+'">'+t.pri+'</span> '+esc(t.title)+'</div>'+
+   '<small>'+esc(t.owner||'unassigned')+(d?' · <span class="'+(od?'over':'')+'">'+fshort(d)+(od?' overdue':'')+'</span>':'')+(t.track?' · '+esc(t.track):'')+(t.status==='doing'?' · in progress':'')+'</small><div>'+
+   '<button class="g s" data-act="claude">Ask Claude</button>'+(t.output?'<button class="g s" data-act="view">View output</button>':'')+'<button class="g s" data-act="edit">Edit</button></div></div></div>';
+}
+function bindTasks(root){
+  root.querySelectorAll('[data-act]').forEach(el=>{
+    const id=el.closest('[data-id]').dataset.id;
+    const act=el.dataset.act;
+    if(act==='done')el.onchange=async()=>{await mutate('tasks',l=>{const t=l.find(x=>x.id===id);if(!t)return false;t.status=el.checked?'done':'todo';t.doneOn=el.checked?ymd(today()):'';return l},'task '+(el.checked?'done':'reopened'));render()};
+    else el.onclick=()=>{const t=S.d.tasks.find(x=>x.id===id);if(act==='claude')claudeModal(t);if(act==='view')viewFile(t.output);if(act==='edit')editTask(t)};
+  });
+}
+function renderToday(m){
+  const brief=buildBrief(S.d),c=S.d.config,me=S.conn.me;
+  const mine=(S.d.tasks||[]).filter(t=>t.owner===me&&t.status!=='done').sort((a,b)=>(pd(a.due)||new Date(2999,0,1))-(pd(b.due)||new Date(2999,0,1))).slice(0,5);
+  m.innerHTML='<div class="card"><pre class="brief" id="brief">'+esc(brief)+'</pre></div>'+
+   '<button class="b" id="send">Copy brief + open WhatsApp group</button><button class="g" id="ref">Refresh</button>'+(c.groupLink?'':'<p class="mute">Add your WhatsApp group link in Settings to open the group directly.</p>')+
+   '<h2>My next 5 ('+esc(me)+')</h2>'+(mine.map(taskCard).join('')||'<p class="mute">Nothing assigned to you.</p>');
+  $('#send').onclick=()=>{copy(brief);toast('Brief copied - paste in the group');window.open(c.groupLink||'https://wa.me/?text='+encodeURIComponent(brief),'_blank')};
+  $('#ref').onclick=loadAll;bindTasks(m);
+}
+function renderTasks(m){
+  const c=S.d.config,team=c.team||[],f=S.filter;
+  let list=(S.d.tasks||[]).filter(t=>f==='all'?true:t.owner===(f==='me'?S.conn.me:f));
+  const open=list.filter(t=>t.status!=='done').sort((a,b)=>(pd(a.due)||new Date(2999,0,1))-(pd(b.due)||new Date(2999,0,1)));
+  const done=list.filter(t=>t.status==='done').slice(-8).reverse();
+  m.innerHTML='<div>'+[['me','Me'],...team.map(p=>[p,p]),['all','All']].map(x=>'<span class="chip '+(f===x[0]?'on':'')+'" data-f="'+x[0]+'">'+esc(x[1])+'</span>').join('')+'</div>'+
+   '<button class="b" id="add">+ Add task</button>'+open.map(taskCard).join('')+(done.length?'<h2>Recently done</h2>'+done.map(taskCard).join(''):'');
+  m.querySelectorAll('[data-f]').forEach(e=>e.onclick=()=>{S.filter=e.dataset.f;render()});
+  $('#add').onclick=()=>editTask(null);bindTasks(m);
+}
+function editTask(t){
+  const c=S.d.config,tpls=['(none)',...(c.prompts||[]).map(p=>p.name)];
+  const fs=[{k:'title',label:'Task',val:t?.title},{k:'owner',label:'Owner',type:'select',opts:['',...c.team],val:t?.owner||''},{k:'due',label:'Due',type:'date',val:t?.due},
+   {k:'pri',label:'Priority',type:'select',opts:['P1','P2','P3'],val:t?.pri||'P2'},{k:'track',label:'Track',type:'select',opts:['',...(c.tracks||[]).map(x=>x.name)],val:t?.track||''}];
+  if(!t){fs.push({k:'tpl',label:'Claude prompt template (optional)',type:'select',opts:tpls},{k:'subject',label:'Subject for the prompt (e.g. brand name)'},{k:'context',label:'Extra context (optional)',type:'area'})}
+  form(t?'Edit task':'New task',fs,async o=>{
+    if(!o.title.trim())throw new Error('Task text needed');
+    if(t){await mutate('tasks',l=>{const x=l.find(y=>y.id===t.id);if(!x)return false;Object.assign(x,{title:o.title,owner:o.owner,due:o.due,pri:o.pri,track:o.track});return l},'edit task')}
+    else{const n=mk({title:o.title,owner:o.owner,due:o.due,pri:o.pri,track:o.track,source:'Manual'});if(!n.owner)n.owner=autoOwner(n);
+      if(o.tpl!=='(none)')n.ai={tpl:o.tpl,subject:o.subject,context:o.context};
+      await mutate('tasks',l=>l.concat(n),'add task')}
+    render();
+  });
+}
+function claudeModal(t){
+  const c=S.d.config,P=c.prompts||[];
+  const cur={tpl:t?.ai?.tpl||(P[0]&&P[0].name),subject:t?.ai?.subject||'',context:t?.ai?.context||''};
+  const draw=()=>{
+    const tp=P.find(p=>p.name===cur.tpl);
+    modal('<h2 style="margin-top:0">Ask Claude'+(t?': '+esc(t.title):'')+'</h2>'+
+      '<label>Template</label><select id="c_tpl">'+P.map(p=>'<option'+(p.name===cur.tpl?' selected':'')+'>'+esc(p.name)+'</option>').join('')+'</select>'+
+      '<label>Subject (brand / topic)</label><input id="c_sub" value="'+esc(cur.subject)+'">'+
+      '<label>Extra context</label><input id="c_ctx" value="'+esc(cur.context)+'">'+
+      '<label>Prompt - edit freely before sending</label><textarea id="c_p" style="min-height:190px">'+esc(fillTpl(tp?tp.body:'{{subject}}',cur.subject,cur.context))+'</textarea>'+
+      '<button class="b" id="c_open">Open in Claude</button><button class="g" id="c_copy">Copy prompt</button>'+
+      '<h2>When Claude is done</h2><p class="mute" style="margin:0 0 6px">Copy Claude\'s answer, paste it here. It saves to the shared library for everyone.</p>'+
+      '<label>Title</label><input id="c_title" value="'+esc((t?t.title:cur.subject)||'')+'">'+
+      '<label>Claude\'s output</label><textarea id="c_out" style="min-height:140px"></textarea>'+
+      '<button class="b" id="c_save">Save to library</button><button class="g" onclick="closeModal()">Close</button>');
+    $('#c_tpl').onchange=()=>{cur.tpl=$('#c_tpl').value;cur.subject=$('#c_sub').value;cur.context=$('#c_ctx').value;draw()};
+    const regen=()=>{const tp2=P.find(p=>p.name===$('#c_tpl').value);cur.subject=$('#c_sub').value;cur.context=$('#c_ctx').value;$('#c_p').value=fillTpl(tp2?tp2.body:'{{subject}}',cur.subject,cur.context)};
+    $('#c_sub').oninput=regen;$('#c_ctx').oninput=regen;
+    $('#c_open').onclick=async()=>{openClaude($('#c_p').value);if(t&&t.status==='todo'){try{await mutate('tasks',l=>{const x=l.find(y=>y.id===t.id);if(!x)return false;x.status='doing';return l},'task started')}catch(e){}}};
+    $('#c_copy').onclick=()=>{copy($('#c_p').value);toast('Copied')};
+    $('#c_save').onclick=async()=>{
+      const body=$('#c_out').value.trim(),title=$('#c_title').value.trim()||'Untitled';
+      if(!body)return toast('Paste Claude\'s output first');
+      const path='outputs/'+ymd(today())+'_'+slug(title)+'.md';
+      try{
+        await saveText(path,'# '+title+'\n\n_Saved by '+S.conn.me+' on '+ymd(today())+(t?' · task: '+t.title:'')+'_\n\n'+body.replace(/^# .*\n+/,''),'output: '+title);
+        if(t)await mutate('tasks',l=>{const x=l.find(y=>y.id===t.id);if(!x)return false;x.output=path;return l},'link output');
+        closeModal();toast('Saved to library');S.tab='outputs';render();
+      }catch(e){toast(e.message)}
+    };
+  };
+  draw();
+}
+async function viewFile(path){
+  modal('<p class="mute">Loading…</p>');
+  try{const r=await gh('/contents/'+path);if(!r.ok)throw new Error(r.status);const j=await r.json();const txt=b64d(j.content);
+    modal('<div class="md">'+md(txt)+'</div><button class="b" id="v_c">Continue in Claude</button><button class="g" id="v_cp">Copy text</button><button class="g" onclick="closeModal()">Close</button>');
+    $('#v_cp').onclick=()=>{copy(txt);toast('Copied')};
+    $('#v_c').onclick=()=>openClaude('Continue from this document. Ask me what I want to do next, then proceed.\n\n'+txt);
+  }catch(e){modal('<p>Could not load: '+esc(e.message)+'</p><button class="g" onclick="closeModal()">Close</button>')}
+}
+async function renderLibrary(m){
+  m.innerHTML='<div><span class="chip '+(S.lib!=='notes'?'on':'')+'" data-l="outputs">Claude outputs</span><span class="chip '+(S.lib==='notes'?'on':'')+'" data-l="notes">Meeting notes</span></div><p class="mute">Loading…</p>';
+  m.querySelectorAll('[data-l]').forEach(e=>e.onclick=()=>{S.lib=e.dataset.l;render()});
+  try{
+    const dir=S.lib==='notes'?'notes':'outputs',files=await listDir(dir);
+    m.querySelector('p.mute').outerHTML=files.length?files.map(f=>'<div class="card" data-p="'+dir+'/'+esc(f)+'" style="cursor:pointer"><b>'+esc(f.replace(/\.md$/,'').replace(/^(\d{4}-\d{2}-\d{2})_/,'$1 · ').replace(/-/g,' ').replace(/(\d{4}) (\d{2}) (\d{2})/,'$1-$2-$3'))+'</b></div>').join(''):'<p class="mute">Nothing here yet.</p>';
+    m.querySelectorAll('[data-p]').forEach(e=>e.onclick=()=>viewFile(e.dataset.p));
+  }catch(e){m.querySelector('p.mute').textContent=e.message}
+}
+let CAP={name:'',text:'',items:null};
+function renderCapture(m){
+  if(CAP.items)return renderReview(m);
+  m.innerHTML='<p class="mute">Paste meeting notes, a WhatsApp chat, or anything with decisions in it. Claude pulls out tasks, owners and dates. You review, then push.</p>'+
+   '<label>What is this? (e.g. Wooden Street internal call)</label><input id="cp_n" value="'+esc(CAP.name)+'">'+
+   '<label>Notes / chat</label><textarea id="cp_t" style="min-height:180px">'+esc(CAP.text)+'</textarea>'+
+   '<input type="file" id="cp_f" accept=".txt,.md,.csv,text/plain" style="margin-bottom:6px">'+
+   '<button class="g" id="cp_dr">Import from Google Drive</button><button class="g" id="cp_gr">Pull latest from Granola</button><br>'+
+   '<button class="b" id="cp_go">1. Open in Claude to extract</button>'+
+   '<h2>2. Paste Claude\'s JSON reply</h2><textarea id="cp_j" placeholder="[ { &quot;type&quot;: &quot;task&quot;, ... } ]"></textarea><button class="b" id="cp_pv">Preview items</button>';
+  $('#cp_f').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{$('#cp_t').value=r.result;if(!$('#cp_n').value)$('#cp_n').value=f.name.replace(/\.[^.]+$/,'')};r.readAsText(f)};
+  const keep=()=>{CAP.name=$('#cp_n').value;CAP.text=$('#cp_t').value};
+  $('#cp_dr').onclick=()=>driveModal();
+  $('#cp_gr').onclick=()=>{keep();openClaude(extractPrompt('',CAP.name))};
+  $('#cp_go').onclick=()=>{keep();if(!CAP.text.trim())return toast('Paste the notes first');openClaude(extractPrompt(CAP.text,CAP.name))};
+  $('#cp_pv').onclick=()=>{keep();const raw=$('#cp_j').value,a=raw.indexOf('['),b=raw.lastIndexOf(']');
+    try{if(a<0||b<a)throw 0;CAP.items=JSON.parse(raw.slice(a,b+1)).map(i=>({on:true,...i}));render()}catch(e){toast('Could not read that JSON - copy Claude\'s whole reply')}};
+}
+function renderReview(m){
+  const team=S.d.config.team||[];
+  m.innerHTML='<h2 style="margin-top:0">Review '+CAP.items.length+' items</h2>'+CAP.items.map((it,i)=>
+   '<div class="card"><div class="row"><label style="flex:0 0 auto"><input type="checkbox" data-i="'+i+'" data-k="on" '+(it.on?'checked':'')+' style="width:20px;margin:0"> push</label><select data-i="'+i+'" data-k="type">'+['task','decision','event','lead','reading'].map(t=>'<option'+(t===it.type?' selected':'')+'>'+t+'</option>').join('')+'</select></div>'+
+   '<input data-i="'+i+'" data-k="text" value="'+esc(it.text)+'">'+
+   '<div class="row"><select data-i="'+i+'" data-k="owner">'+['',...team].map(o=>'<option'+(o===it.owner?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select><input type="date" data-i="'+i+'" data-k="due" value="'+esc(it.due||'')+'"><select data-i="'+i+'" data-k="priority">'+['P1','P2','P3'].map(o=>'<option'+(o===(it.priority||'P2')?' selected':'')+'>'+o+'</option>').join('')+'</select></div>'+(it.detail?'<small class="mute">'+esc(it.detail)+'</small>':'')+'</div>').join('')+
+   '<label><input type="checkbox" id="rv_n" checked style="width:auto"> also save the raw notes to the library</label><br>'+
+   '<button class="b" id="rv_ok">Push selected to Inflekt OS</button><button class="g" id="rv_x">Back</button>';
+  m.querySelectorAll('[data-i]').forEach(e=>e.onchange=()=>{const it=CAP.items[+e.dataset.i];it[e.dataset.k]=e.type==='checkbox'?e.checked:e.value});
+  $('#rv_x').onclick=()=>{CAP.items=null;render()};
+  $('#rv_ok').onclick=pushItems;
+}
+async function pushItems(){
+  const src='Meeting: '+(CAP.name||'notes'),sel=CAP.items.filter(i=>i.on&&String(i.text||'').trim());
+  try{
+    const tasks=sel.filter(i=>i.type==='task').map(i=>{const t=mk({title:i.text,owner:i.owner,due:i.due,pri:i.priority,track:i.track,source:src,notes:i.detail});if(!t.owner)t.owner=autoOwner(t);return t});
+    const events=sel.filter(i=>i.type==='event').map(i=>({id:uid(),date:i.due,event:i.text,template:'',owner:i.owner||S.conn.me,track:i.track||'',notes:i.detail||''}));
+    const leads=sel.filter(i=>i.type==='lead').map(i=>({id:uid(),company:i.text,stage:'Lead',owner:i.owner||'',retainer:'',prob:'',last:'',next:i.detail||'',nextDate:i.due||''}));
+    const decs=sel.filter(i=>i.type==='decision'||i.type==='reading').map(i=>({id:uid(),date:ymd(today()),type:i.type,text:i.text,owner:i.owner||'',source:src,detail:i.detail||''}));
+    if(tasks.length)await mutate('tasks',l=>l.concat(tasks),'meeting tasks: '+CAP.name);
+    if(events.length)await mutate('events',l=>l.concat(events),'events from '+CAP.name);
+    if(leads.length)await mutate('pipeline',l=>l.concat(leads),'leads from '+CAP.name);
+    if(decs.length)await mutate('decisions',l=>l.concat(decs),'decisions from '+CAP.name);
+    if(CAP.driveId){const rec={id:CAP.driveId,name:CAP.name,by:S.conn.me,at:ymd(today())};await mutate('imported',l=>l.some(x=>x.id===rec.id)?false:l.concat(rec),'imported '+CAP.name)}
+    if($('#rv_n').checked&&CAP.text)await saveText('notes/'+ymd(today())+'_'+slug(CAP.name||'notes')+'.md','# '+(CAP.name||'Notes')+'\n\n_'+ymd(today())+' · pushed by '+S.conn.me+'_\n\n'+CAP.text,'notes: '+CAP.name);
+    toast('Pushed '+sel.length+' items');CAP={name:'',text:'',items:null};S.tab='tasks';S.filter='all';render();
+  }catch(e){toast(e.message)}
+}
+function renderPipe(m){
+  const p=(S.d.pipeline||[]).slice().sort((a,b)=>(pd(a.last)||0)-(pd(b.last)||0));
+  m.innerHTML='<button class="b" id="pa">+ Add lead</button>'+(p.map(x=>'<div class="card" data-id="'+x.id+'"><b>'+esc(x.company)+'</b> <span class="mute">'+esc(x.stage||'')+'</span><br><small>'+esc(x.owner||'no owner')+' · Rs'+esc(x.retainer||'?')+'L/mo · '+esc(x.prob||'?')+'% · last touch '+(pd(x.last)?fshort(pd(x.last)):'never')+'</small><br><small>Next: '+esc(x.next||'-')+'</small><div><button class="g s" data-a="touch">Touched today</button><button class="g s" data-a="edit">Edit</button><button class="g s" data-a="brief">Prep research</button></div></div>').join('')||'<p class="mute">No leads yet. Add targets or capture them from meetings.</p>');
+  $('#pa').onclick=()=>editLead(null);
+  m.querySelectorAll('[data-a]').forEach(b=>b.onclick=async()=>{const id=b.closest('[data-id]').dataset.id,x=S.d.pipeline.find(y=>y.id===id);
+    if(b.dataset.a==='touch'){await mutate('pipeline',l=>{const z=l.find(y=>y.id===id);if(!z)return false;z.last=ymd(today());return l},'touch');render()}
+    else if(b.dataset.a==='edit')editLead(x);else claudeModal({title:'Research '+x.company,ai:{tpl:(S.d.config.prompts||[]).find(q=>/research/i.test(q.name))?.name,subject:x.company,context:''},status:'x',id:'none'});});
+}
+function editLead(x){
+  form(x?'Edit lead':'New lead',[{k:'company',label:'Company',val:x?.company},{k:'stage',label:'Stage',type:'select',opts:['Lead','Researching','Contacted','Call booked','Proposal','Won','Lost'],val:x?.stage||'Lead'},
+   {k:'owner',label:'Owner',type:'select',opts:['',...S.d.config.team],val:x?.owner||''},{k:'retainer',label:'Expected retainer (Rs lakh/mo)',val:x?.retainer},{k:'prob',label:'Probability %',val:x?.prob},{k:'next',label:'Next step',val:x?.next}],
+   async o=>{if(!o.company.trim())throw new Error('Company needed');
+    await mutate('pipeline',l=>{if(x){Object.assign(l.find(y=>y.id===x.id)||{},o)}else l.push({id:uid(),last:'',nextDate:'',...o});return l},'pipeline');render()});
+}
+function renderSettings(m){
+  const c=S.conn;
+  m.innerHTML='<h2 style="margin-top:0">Connect</h2><p class="mute">Data lives in your private GitHub repo. Each partner pastes their own token once on their phone/laptop.</p>'+
+   '<label>Data repo (owner/name)</label><input id="s_r" value="'+esc(c.repo)+'" placeholder="inflekt/inflekt-os-data">'+
+   '<label>GitHub token (fine-grained, Contents: read &amp; write on that repo only)</label><input id="s_t" type="password" value="'+esc(c.token)+'">'+
+   '<label>I am</label><input id="s_m" value="'+esc(c.me)+'" placeholder="Anand">'+
+   '<button class="b" id="s_s">Save + connect</button>'+
+   (S.ready?'<h2>Team settings</h2><label>WhatsApp group link</label><input id="g_l" value="'+esc(S.d.config.groupLink||'')+'">'+
+    '<label>Team (comma separated)</label><input id="g_t" value="'+esc((S.d.config.team||[]).join(', '))+'">'+
+    '<label>8am brief goes to these emails (comma separated)</label><input id="g_e" value="'+esc((S.d.config.emailTo||[]).join(', '))+'">'+
+    '<label>App link (shown in the email)</label><input id="g_u" value="'+esc(S.d.config.appUrl||'')+'">'+
+    '<button class="g" id="g_s">Save team settings</button>'+
+    '<h2>Google Drive (this device only)</h2><label>Google OAuth client ID</label><input id="gc_i" value="'+esc(LS.get('gcid',''))+'" placeholder="123...apps.googleusercontent.com">'+
+    '<label>Meeting-notes folder ID(s), comma separated (from the folder URL)</label><input id="gc_f" value="'+esc(LS.get('gfolder',''))+'">'+
+    '<button class="g" id="gc_s">Save Drive settings</button>'+
+    '<h2>Advanced config (JSON)</h2><p class="mute">Tracks, recurring tasks, prep templates, Claude prompt templates, revenue.</p><textarea id="j_c" style="min-height:260px;font:12px ui-monospace,monospace">'+esc(JSON.stringify(S.d.config,null,1))+'</textarea><button class="g" id="j_s">Save JSON</button>':'');
+  $('#s_s').onclick=()=>{S.conn={repo:$('#s_r').value.trim(),token:$('#s_t').value.trim(),me:$('#s_m').value.trim()};LS.set('conn',S.conn);S.ready=false;S.tab='today';render();loadAll()};
+  if(S.ready){
+    $('#g_s').onclick=async()=>{try{await mutate('config',c=>{c.groupLink=$('#g_l').value.trim();c.team=$('#g_t').value.split(',').map(s=>s.trim()).filter(Boolean);c.emailTo=$('#g_e').value.split(',').map(s=>s.trim()).filter(Boolean);c.appUrl=$('#g_u').value.trim();return c},'team settings');toast('Saved')}catch(e){toast(e.message)}};
+    $('#gc_s').onclick=()=>{LS.set('gcid',$('#gc_i').value.trim());LS.set('gfolder',$('#gc_f').value.trim());toast('Saved on this device')};
+    $('#j_s').onclick=async()=>{try{const j=JSON.parse($('#j_c').value);await mutate('config',()=>j,'config');toast('Saved')}catch(e){toast('Invalid JSON or write failed')}};
+  }
+}
+if(S.conn.repo&&S.conn.token)loadAll();else render();
+</script>
+</body>
+</html>
