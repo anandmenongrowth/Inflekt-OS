@@ -34,48 +34,65 @@ function computeAdds(d,now){
   });
   return adds;
 }
-function mk(o){return{id:uid(),track:o.track||'',title:o.title,owner:o.owner||'',due:o.due||'',eta:'',pri:o.pri||'P2',status:'todo',source:o.source||'Manual',key:o.key||'',created:ymd(today()),doneOn:'',notes:o.notes||'',ai:o.ai||null,output:''}}
+function mk(o){return{id:uid(),track:o.track||'',title:o.title,owner:o.owner||'',due:o.due||'',eta:'',waitingOn:'',waitSince:'',slips:0,log:[],pri:o.pri||'P2',status:'todo',source:o.source||'Manual',key:o.key||'',created:ymd(today()),doneOn:'',notes:o.notes||'',ai:o.ai||null,output:''}}
 
 const pn=p=>+String(p).replace(/\D/g,'')||2;
 const byDue=(a,b)=>((pd(a.due)||new Date(2999,0,1))-(pd(b.due)||new Date(2999,0,1)))||pn(a.pri)-pn(b.pri);
-function statusText(t){return t.status==='done'?'Done':t.status==='doing'?('WIP'+(t.eta&&pd(t.eta)?', ETA '+fshort(pd(t.eta)):'')):'Yet to start'}
-function dueText(t,td){const x=pd(t.due);if(!x)return 'No date';return fshort(x)+(x<td&&t.status!=='done'?' (overdue '+diff(x,td)+'d)':'')}
+const isOpen=t=>t.status!=='done'&&t.status!=='dropped';
+/** colour band of a task's deadline relative to today: over (red) | soon (amber: today/tomorrow) | later | none | done (green) | drop */
+function band(t,td){
+  if(t.status==='done')return 'done';if(t.status==='dropped')return 'drop';
+  const d=pd(t.due);if(!d)return 'none';if(d<td)return 'over';if(d<=addD(td,1))return 'soon';return 'later';
+}
+function lastNote(t){const n=(t.log||[]).filter(x=>x.k==='note');return n.length?n[n.length-1]:null}
+function statusText(t,td){
+  if(t.status==='doing')return 'WIP'+(t.eta&&pd(t.eta)?', ETA '+fshort(pd(t.eta)):'');
+  if(t.status==='waiting')return 'Waiting on '+(t.waitingOn||'someone')+(td&&pd(t.waitSince)?', '+diff(pd(t.waitSince),td)+'d':'');
+  if(t.status==='done')return 'Done';if(t.status==='dropped')return 'Dropped';return 'Yet to start';
+}
+function dueText(t,td){const x=pd(t.due);if(!x)return 'No date';return fshort(x)+(x<td&&isOpen(t)?' (overdue '+diff(x,td)+'d)':'')}
 
-/** Structured brief: used by the app to draw the Today page, and by buildBrief() for the text version. */
+/** Structured brief: draws the Today page and feeds the text version. */
 function briefData(d,now){
-  const c=d.config||{},td=today(now),tasks=(d.tasks||[]).filter(t=>t.status!=='done'),team=c.team||[],max=c.maxTasks||5;
+  const c=d.config||{},td=today(now),all=d.tasks||[],open=all.filter(isOpen),team=c.team||[],max=c.maxTasks||5;
   const owners=team.map(p=>{
-    const all=tasks.filter(t=>t.owner===p&&(t.status==='doing'||!pd(t.due)||pd(t.due)<=addD(td,1))).sort(byDue);
-    return{name:p,total:all.length,tasks:all.slice(0,max)};
+    const mine=open.filter(t=>t.owner===p&&t.status!=='waiting'&&(t.status==='doing'||!pd(t.due)||pd(t.due)<=addD(td,1))).sort(byDue);
+    return{name:p,total:mine.length,tasks:mine.slice(0,max)};
   });
+  const waiting=open.filter(t=>t.status==='waiting').sort((a,b)=>String(a.waitSince).localeCompare(String(b.waitSince)));
+  const wk=addD(td,-7);
+  const closed=all.filter(t=>t.status==='done'&&pd(t.doneOn)&&pd(t.doneOn)>=wk).sort((a,b)=>String(b.doneOn).localeCompare(String(a.doneOn)));
   const pipe=(d.pipeline||[]).filter(p=>!/won|lost/i.test(p.stage));
-  const f=[],over=tasks.filter(t=>pd(t.due)&&pd(t.due)<td);
+  const f=[],over=open.filter(t=>pd(t.due)&&pd(t.due)<td);
   if(over.length>=3)f.push(over.length+' tasks overdue - clear or re-date in the first 10 min.');
-  (d.events||[]).forEach(e=>{const ed=pd(e.date);if(!ed)return;const dd=diff(td,ed);if(dd>=0&&dd<=3){const open=tasks.filter(t=>String(t.key).startsWith('EVT|'+e.id+'|')).length;f.push(e.event+' in '+dd+' day(s) - '+open+' prep task(s) open (owner '+e.owner+')')}});
+  open.filter(t=>(t.slips||0)>=2).forEach(t=>f.push('Deadline moved '+t.slips+' times: '+t.title+' ('+(t.owner||'no owner')+')'));
+  waiting.filter(t=>pd(t.waitSince)&&diff(pd(t.waitSince),td)>=5).forEach(t=>f.push('Waiting '+diff(pd(t.waitSince),td)+'d on '+(t.waitingOn||'someone')+': '+t.title+' - time to nudge'));
+  (d.events||[]).forEach(e=>{const ed=pd(e.date);if(!ed)return;const dd=diff(td,ed);if(dd>=0&&dd<=3){const n=open.filter(t=>String(t.key).startsWith('EVT|'+e.id+'|')).length;f.push(e.event+' in '+dd+' day(s) - '+n+' prep task(s) open (owner '+e.owner+')')}});
   pipe.forEach(p=>{const lt=pd(p.last);if(!lt||diff(lt,td)>=(c.staleDays||7))f.push(p.company+': no touch '+(lt?diff(lt,td)+'d':'ever')+'. Next: '+(p.next||'define next step')+' ('+(p.owner||'no owner')+')')});
-  const wk=addD(td,-7),touched=(d.pipeline||[]).filter(p=>pd(p.last)&&pd(p.last)>=wk).length;
+  const touched=(d.pipeline||[]).filter(p=>pd(p.last)&&pd(p.last)>=wk).length;
   if(touched<(c.outreachPerWeek||5))f.push('Only '+touched+' outreach touches in 7 days (goal '+(c.outreachPerWeek||5)+')');
-  const all=d.tasks||[];
   const quiet=[];
   (c.tracks||[]).filter(t=>t.active!==false).forEach(t=>{const ds=all.filter(x=>x.track===t.name).map(x=>Math.max(pd(x.doneOn)||0,pd(x.created)||0));const last=ds.length?Math.max(...ds):0;if(!last||diff(new Date(last),td)>(c.quietDays||7))quiet.push(t.name.replace(/^T\d+\s+/,'')+' ('+t.owner+')')});
   if(quiet.length)f.push('No activity in '+(c.quietDays||7)+'+ days: '+quiet.join(', '));
-  return{date:td,owners,flags:f.slice(0,10),max};
+  return{date:td,owners,waiting,closed,flags:f.slice(0,10),max};
 }
 
-/** Plain text for WhatsApp / email. No symbols, no markup: deadline first, then task, then status. */
+/** Plain text for WhatsApp / email. No symbols or markup: deadline, task, status. */
 function buildBrief(d,now){
   const b=briefData(d,now),L=['INFLEKT OS - '+fday(b.date).toUpperCase(),''];
   b.owners.forEach(o=>{
     L.push(o.name.toUpperCase()+(o.total>b.max?' (top '+b.max+' of '+o.total+')':''));
     if(!o.tasks.length)L.push('Free - pick from backlog / BD outreach');
-    o.tasks.forEach(t=>L.push(dueText(t,b.date)+' | '+t.title+' | '+statusText(t)));
+    o.tasks.forEach(t=>L.push(dueText(t,b.date)+' | '+t.title+' | '+statusText(t,b.date)));
     L.push('');
   });
+  if(b.waiting.length){L.push('WAITING ON OTHERS');b.waiting.forEach(t=>L.push((t.owner||'-')+' | '+t.title+' | '+statusText(t,b.date)));L.push('')}
+  if(b.closed.length){L.push('CLOSED THIS WEEK ('+b.closed.length+')');b.closed.slice(0,6).forEach(t=>L.push(fshort(pd(t.doneOn))+' | '+t.title+' | '+(t.owner||'-')));L.push('')}
   L.push('WATCH-OUTS');
   if(!b.flags.length)L.push('Nothing flagged.');
   b.flags.forEach(x=>L.push('- '+x));
   return L.join('\n');
 }
-const C={pad,ymd,pd,today,addD,diff,fshort,fday,uid,DOW,computeAdds,mk,byDue,statusText,dueText,briefData,buildBrief};
+const C={pad,ymd,pd,today,addD,diff,fshort,fday,uid,DOW,computeAdds,mk,byDue,isOpen,band,lastNote,statusText,dueText,briefData,buildBrief};
 if(typeof module!=='undefined'&&module.exports)module.exports=C;else Object.assign(root,C);
 })(typeof window!=='undefined'?window:globalThis);

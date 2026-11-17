@@ -66,6 +66,15 @@ label{font-size:14px;font-weight:600;color:var(--mute)}
 .md pre{background:var(--bg);padding:10px;overflow:auto;border-radius:8px}.md table{border-collapse:collapse;width:100%;font-size:15px;display:block;overflow:auto}.md td,.md th{border:1px solid var(--line);padding:7px 10px}.md th{font-weight:700}.md code{background:var(--bg);padding:1px 5px;border-radius:4px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:104px;background:#222;color:#fff;padding:11px 18px;border-radius:99px;font-size:15px;z-index:20;display:none}
 .mute{color:var(--mute)}
+.dl{display:inline-block;border-radius:8px;padding:2px 9px;font-weight:700;font-size:15px;white-space:nowrap}
+.dl.over{background:#f4c7c3;color:#7a1d14}.dl.soon{background:#fce8b2;color:#6b4a00}.dl.done{background:#b7e1cd;color:#14502f}
+.dl.later,.dl.none,.dl.drop{background:transparent;color:var(--ink);padding-left:0}
+@media(prefers-color-scheme:dark){.dl.over{background:#5a2420;color:#ffd5d0}.dl.soon{background:#5a4510;color:#ffe9a8}.dl.done{background:#1c4a33;color:#bff0d6}}
+.dd small{display:block;font-size:13px;font-weight:600;margin-top:2px}
+.dot.waiting{--c:#4a90d9}.dot.dropped{--c:#8b96a1}
+.note{font-size:15px;border-left:3px solid var(--brand);padding-left:9px;margin-top:6px}
+.badge{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:1px 7px;background:#fce8b2;color:#6b4a00;margin-left:8px;vertical-align:middle}
+.cnt.ok{background:var(--st-done)}
 </style>
 </head>
 <body>
@@ -249,7 +258,6 @@ function form(title,fields,onOk,okLabel){
 
 /* ============ views ============ */
 const TABS=[['today','Today'],['tasks','Tasks'],['capture','Capture'],['outputs','Library'],['pipe','Pipeline']];
-const ST={todo:'Yet to start',doing:'Picked up, WIP',done:'Done'};
 function render(){
   const conn=S.conn.repo&&S.conn.token,m=$('#main');
   $('#nav').style.display=conn?'flex':'none';
@@ -262,72 +270,103 @@ function render(){
 $('#nav').addEventListener('click',e=>{const t=e.target.dataset.tab;if(t){S.tab=t;render()}});
 $('#sync').addEventListener('click',()=>{S.tab='set';render()});
 
-/* one task row: [status dot] [deadline] [task + details]. mode: 'open' | 'done' */
+/* ---- task row: [status dot] [deadline chip] [task, trail, latest note] ---- */
+const ST={todo:'Yet to start',doing:'Picked up, WIP',waiting:'Waiting on someone',done:'Done',dropped:'Dropped'};
+const logAdd=(x,k,t)=>{(x.log=x.log||[]).push({at:ymd(today()),by:S.conn.me,k,t})};
 function taskRow(t,o){
-  o=o||{};const td=today(),d=pd(t.due),od=d&&d<td&&t.status!=='done';
-  const dateTxt=o.mode==='done'?(pd(t.doneOn)?fshort(pd(t.doneOn)):'-'):(d?fshort(d):'No date');
+  o=o||{};const td=today(),d=pd(t.due),bd=band(t,td),n=lastNote(t);
+  let dateTxt,small='';
+  if(o.mode==='done'){dateTxt=pd(t.doneOn)?fshort(pd(t.doneOn)):'-'}
+  else{dateTxt=d?fshort(d):'No date';if(bd==='over')small='overdue '+diff(d,td)+'d';else if(d&&diff(td,d)===0&&bd==='soon')small='today';else if(bd==='soon')small='tomorrow'}
   const sub=[];
   if(t.status==='doing')sub.push('WIP, ETA '+(pd(t.eta)?fshort(pd(t.eta)):'not set'));
+  if(t.status==='waiting')sub.push('Waiting on '+esc(t.waitingOn||'someone')+(pd(t.waitSince)?', '+diff(pd(t.waitSince),td)+'d':''));
+  if(t.status==='dropped')sub.push('Dropped');
   if(o.owner)sub.push(esc(t.owner||'unassigned'));
   if(t.track)sub.push(esc(t.track));
+  if(o.raised&&pd(t.created))sub.push('raised '+fshort(pd(t.created)));
+  const badge=(t.slips||0)>0?'<span class="badge">moved '+t.slips+'x</span>':'';
   return '<div class="tr" data-id="'+t.id+'"><button class="dotbtn" data-act="status" aria-label="'+ST[t.status]+'"><span class="dot '+t.status+'"></span></button>'+
-   '<div class="dd"><b class="'+(od?'over':'')+'">'+dateTxt+'</b>'+(od?'<small class="over">overdue '+diff(d,td)+'d</small>':'')+'</div>'+
-   '<div><div class="ttl">'+esc(t.title)+'</div>'+(sub.length?'<div class="sub">'+sub.join(' · ')+'</div>':'')+
-   (o.acts===false?'':'<div class="acts"><button class="g s" data-act="claude">Ask Claude</button>'+(t.output?'<button class="g s" data-act="view">View output</button>':'')+'<button class="g s" data-act="edit">Edit</button></div>')+'</div></div>';
+   '<div class="dd"><span class="dl '+bd+'">'+dateTxt+'</span>'+(small?'<small class="'+(bd==='over'?'over':'mute')+'">'+small+'</small>':'')+'</div>'+
+   '<div><div class="ttl">'+esc(t.title)+badge+'</div>'+(sub.length?'<div class="sub">'+sub.join(' · ')+'</div>':'')+
+   (n?'<div class="note">'+esc(n.t)+' <span class="mute">- '+esc(n.by||'')+', '+fshort(pd(n.at))+'</span></div>':'')+
+   (o.acts===false?'':'<div class="acts"><button class="g s" data-act="note">Add note</button><button class="g s" data-act="claude">Ask Claude</button>'+(t.output?'<button class="g s" data-act="view">View output</button>':'')+'<button class="g s" data-act="edit">Edit</button></div>')+'</div></div>';
 }
 const tableHtml=(rows,dateLabel)=>'<div class="tbl"><div class="th"><span></span><span>'+(dateLabel||'Deadline')+'</span><span>Task</span></div>'+rows+'</div>';
 function ownerSection(name,total,rows,dateLabel){return '<h2 class="own">'+esc(name)+' <span class="cnt">'+total+'</span></h2>'+tableHtml(rows,dateLabel)}
 
 function statusModal(t){
-  let pick=t.status,eta=t.eta||'';
+  let pick=t.status,eta=t.eta||'',who=t.waitingOn||'',txt='';
+  const keep=()=>{const a=$('#st_eta'),b=$('#st_who'),c=$('#st_txt');if(a)eta=a.value;if(b)who=b.value;if(c)txt=c.value};
   const draw=()=>{
-    modal('<h3>'+esc(t.title)+'</h3>'+['todo','doing','done'].map(s=>'<button class="opt'+(pick===s?' sel':'')+'" data-s="'+s+'"><span class="dot '+s+'"></span>'+ST[s]+'</button>').join('')+
+    modal('<h3>'+esc(t.title)+'</h3>'+['todo','doing','waiting','done','dropped'].map(s=>'<button class="opt'+(pick===s?' sel':'')+'" data-s="'+s+'"><span class="dot '+s+'"></span>'+ST[s]+'</button>').join('')+
       (pick==='doing'?'<label>Expected deadline (required)</label><input type="date" id="st_eta" value="'+esc(eta)+'">':'')+
+      (pick==='waiting'?'<label>Waiting on whom? (required)</label><input id="st_who" value="'+esc(who)+'" placeholder="e.g. client, designer, Venkat">':'')+
+      (pick==='done'?'<label>What happened? One line (optional)</label><input id="st_txt" value="'+esc(txt)+'" placeholder="Outcome / link to what was delivered">':'')+
+      (pick==='dropped'?'<label>Why dropped? (required)</label><input id="st_txt" value="'+esc(txt)+'">':'')+
       '<button class="b" id="st_ok">Save</button><button class="g" onclick="closeModal()">Cancel</button>');
-    document.querySelectorAll('.opt').forEach(b=>b.onclick=()=>{const e=$('#st_eta');if(e)eta=e.value;pick=b.dataset.s;draw()});
+    document.querySelectorAll('.opt').forEach(b=>b.onclick=()=>{keep();pick=b.dataset.s;draw()});
     $('#st_ok').onclick=async()=>{
-      const e=$('#st_eta');if(e)eta=e.value;
+      keep();
       if(pick==='doing'&&!eta)return toast('Add the expected deadline');
-      try{await mutate('tasks',l=>{const x=l.find(y=>y.id===t.id);if(!x)return false;x.status=pick;x.eta=pick==='doing'?eta:'';x.doneOn=pick==='done'?ymd(today()):'';return l},'status: '+ST[pick]);closeModal();render()}
+      if(pick==='waiting'&&!who.trim())return toast('Say who you are waiting on');
+      if(pick==='dropped'&&!txt.trim())return toast('Add a one-line reason');
+      try{await mutate('tasks',l=>{const x=l.find(y=>y.id===t.id);if(!x)return false;
+        if(x.status!==pick)logAdd(x,'status',ST[pick]+(pick==='doing'?', ETA '+eta:'')+(pick==='waiting'?': '+who.trim():''));
+        x.status=pick;x.eta=pick==='doing'?eta:'';x.waitingOn=pick==='waiting'?who.trim():'';x.waitSince=pick==='waiting'?(t.status==='waiting'&&t.waitSince?t.waitSince:ymd(today())):'';
+        x.doneOn=(pick==='done'||pick==='dropped')?ymd(today()):'';
+        if(txt.trim()&&(pick==='done'||pick==='dropped'))logAdd(x,'note',(pick==='dropped'?'Dropped: ':'')+txt.trim());
+        return l},'status: '+ST[pick]);closeModal();render()}
       catch(er){toast(er.message)}
     };
   };
   draw();
 }
+function noteModal(t){
+  form('Add a note: '+t.title,[{k:'text',label:'What happened / what is the update? (shows under the task for everyone)',type:'area'}],async o=>{
+    if(!o.text.trim())throw new Error('Write the note');
+    await mutate('tasks',l=>{const x=l.find(y=>y.id===t.id);if(!x)return false;logAdd(x,'note',o.text.trim());return l},'note');render();
+  },'Save note');
+}
 function bindTasks(root){
   root.querySelectorAll('[data-act]').forEach(el=>{
     const id=el.closest('[data-id]').dataset.id,act=el.dataset.act;
     el.onclick=()=>{const t=S.d.tasks.find(x=>x.id===id);if(!t)return;
-      if(act==='status')statusModal(t);if(act==='claude')claudeModal(t);if(act==='view')viewFile(t.output);if(act==='edit')editTask(t)};
+      if(act==='status')statusModal(t);if(act==='note')noteModal(t);if(act==='claude')claudeModal(t);if(act==='view')viewFile(t.output);if(act==='edit')editTask(t)};
   });
 }
 function renderToday(m){
-  const b=briefData(S.d),c=S.d.config,text=buildBrief(S.d);
+  const b=briefData(S.d),c=S.d.config,text=buildBrief(S.d),td=b.date;
+  const waitRows=b.waiting.map(t=>taskRow(t,{acts:false,owner:true})).join('');
   m.innerHTML='<h1>'+today().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})+'</h1>'+
    '<button class="b big" id="send">Copy brief + open WhatsApp group</button><button class="g" id="ref">Refresh</button>'+
    b.owners.map(o=>ownerSection(o.name,o.total,o.tasks.length?o.tasks.map(t=>taskRow(t,{acts:false})).join(''):'<div class="tr"><span></span><span></span><span class="mute">Free - pick from backlog / BD outreach</span></div>')).join('')+
+   (b.waiting.length?'<h2>Waiting on others <span class="cnt">'+b.waiting.length+'</span></h2>'+tableHtml(waitRows,'Deadline'):'')+
+   (b.closed.length?'<h2>Closed this week <span class="cnt ok">'+b.closed.length+'</span></h2>'+tableHtml(b.closed.slice(0,8).map(t=>taskRow(t,{mode:'done',acts:false,owner:true})).join(''),'Done on'):'')+
    '<h2>Watch-outs</h2>'+(b.flags.length?'<ul class="flags">'+b.flags.map(f=>'<li>'+esc(f)+'</li>').join('')+'</ul>':'<p class="mute">Nothing flagged.</p>');
   $('#send').onclick=()=>{copy(text);toast('Brief copied - paste in the group');window.open(c.groupLink||'https://wa.me/?text='+encodeURIComponent(text),'_blank')};
   $('#ref').onclick=loadAll;bindTasks(m);
 }
 function renderTasks(m){
-  const c=S.d.config,team=c.team||[],f=S.filter,view=S.view||'open';
-  const list=(S.d.tasks||[]).filter(t=>f==='all'?true:t.owner===(f==='me'?S.conn.me:f));
-  let body='';
-  if(view==='open'){
-    const open=list.filter(t=>t.status!=='done').sort(byDue);
-    if(f==='all'){
-      body=team.concat(['']).map(p=>{const ts=open.filter(t=>(t.owner||'')===p);return ts.length?ownerSection(p||'Unassigned',ts.length,ts.map(t=>taskRow(t)).join('')):''}).join('')
-    }else body=open.length?tableHtml(open.map(t=>taskRow(t)).join('')):'<p class="mute">Nothing open.</p>';
-  }else{
-    const done=list.filter(t=>t.status==='done').sort((a,b)=>String(b.doneOn).localeCompare(String(a.doneOn)));
-    body=done.length?'<p class="mute">'+done.length+' completed. Tap the green circle to reopen.</p>'+tableHtml(done.map(t=>taskRow(t,{mode:'done',owner:true})).join(''),'Done on'):'<p class="mute">Nothing completed yet.</p>';
-  }
+  const c=S.d.config,team=c.team||[],f=S.filter,view=S.view||'open',tr=S.trackF||'';
+  let list=(S.d.tasks||[]).filter(t=>(f==='all'?true:t.owner===(f==='me'?S.conn.me:f))&&(!tr||t.track===tr));
+  const VIEWS={open:['Open',t=>isOpen(t)&&t.status!=='waiting'],waiting:['Waiting',t=>t.status==='waiting'],done:['Done',t=>t.status==='done'],dropped:['Dropped',t=>t.status==='dropped'],all:['All',()=>true]};
+  list=list.filter(VIEWS[view][1]);
+  const closedView=view==='done'||view==='dropped';
+  list.sort(closedView?(a,b)=>String(b.doneOn).localeCompare(String(a.doneOn)):view==='all'?(a,b)=>String(b.created).localeCompare(String(a.created)):byDue);
+  const opts={mode:closedView?'done':'open',owner:f==='all',raised:true};
+  let body;
+  if(!list.length)body='<p class="mute">Nothing here.</p>';
+  else if(view==='open'&&f==='all')body=team.concat(['']).map(p=>{const ts=list.filter(t=>(t.owner||'')===p);return ts.length?ownerSection(p||'Unassigned',ts.length,ts.map(t=>taskRow(t,opts)).join('')):''}).join('');
+  else body='<p class="mute">'+list.length+' task'+(list.length>1?'s':'')+(closedView?'. Tap the circle to reopen.':'')+'</p>'+tableHtml(list.map(t=>taskRow(t,opts)).join(''),closedView?'Done on':'Deadline');
+  const tracks=(c.tracks||[]).map(x=>x.name);
   m.innerHTML='<div>'+[['me','Me'],...team.map(p=>[p,p]),['all','All']].map(x=>'<span class="chip '+(f===x[0]?'on':'')+'" data-f="'+x[0]+'">'+esc(x[1])+'</span>').join('')+'</div>'+
-   '<div style="margin-top:8px"><span class="chip '+(view==='open'?'on':'')+'" data-v="open">Open</span><span class="chip '+(view==='done'?'on':'')+'" data-v="done">Done</span></div>'+
-   '<button class="b" id="add" style="margin-top:10px">+ Add task</button>'+body;
+   '<div style="margin-top:6px">'+Object.keys(VIEWS).map(k=>'<span class="chip '+(view===k?'on':'')+'" data-v="'+k+'">'+VIEWS[k][0]+'</span>').join('')+'</div>'+
+   '<select id="trk" style="margin-top:8px"><option value="">All tracks</option>'+tracks.map(x=>'<option'+(x===tr?' selected':'')+'>'+esc(x)+'</option>').join('')+'</select>'+
+   '<button class="b" id="add">+ Add task</button>'+body;
   m.querySelectorAll('[data-f]').forEach(e=>e.onclick=()=>{S.filter=e.dataset.f;render()});
   m.querySelectorAll('[data-v]').forEach(e=>e.onclick=()=>{S.view=e.dataset.v;render()});
+  $('#trk').onchange=e=>{S.trackF=e.target.value;render()};
   $('#add').onclick=()=>editTask(null);bindTasks(m);
 }
 function editTask(t){
@@ -337,7 +376,9 @@ function editTask(t){
   if(!t){fs.push({k:'tpl',label:'Claude prompt template (optional)',type:'select',opts:tpls},{k:'subject',label:'Subject for the prompt (e.g. brand name)'},{k:'context',label:'Extra context (optional)',type:'area'})}
   form(t?'Edit task':'New task',fs,async o=>{
     if(!o.title.trim())throw new Error('Task text needed');
-    if(t){await mutate('tasks',l=>{const x=l.find(y=>y.id===t.id);if(!x)return false;Object.assign(x,{title:o.title,owner:o.owner,due:o.due,pri:o.pri,track:o.track});return l},'edit task')}
+    if(t){await mutate('tasks',l=>{const x=l.find(y=>y.id===t.id);if(!x)return false;if((x.due||'')!==o.due){if(x.due){x.slips=(x.slips||0)+1;logAdd(x,'deadline','Deadline moved '+fshort(pd(x.due))+' to '+(o.due?fshort(pd(o.due)):'none'))}else if(o.due)logAdd(x,'deadline','Deadline set '+fshort(pd(o.due)))}
+        if((x.owner||'')!==o.owner)logAdd(x,'owner','Owner: '+(x.owner||'none')+' to '+(o.owner||'none'));
+        Object.assign(x,{title:o.title,owner:o.owner,due:o.due,pri:o.pri,track:o.track});return l},'edit task')}
     else{const n=mk({title:o.title,owner:o.owner,due:o.due,pri:o.pri,track:o.track,source:'Manual'});if(!n.owner)n.owner=autoOwner(n);
       if(o.tpl!=='(none)')n.ai={tpl:o.tpl,subject:o.subject,context:o.context};
       await mutate('tasks',l=>l.concat(n),'add task')}
