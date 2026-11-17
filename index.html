@@ -171,8 +171,8 @@ async function loadAll(){
   try{
     for(const k of Object.keys(FILES)){S.d[k]=(await rd('data/'+k+'.json',FILES[k])).json}
     await materialize();
-    S.ready=true;$('#sync').textContent='synced '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-  }catch(e){$('#sync').textContent='sync failed';toast(e.message)}
+    S.ready=true;S.err='';$('#sync').textContent='synced '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  }catch(e){$('#sync').textContent='sync failed';S.err=e.message;toast(e.message)}
   render();
 }
 
@@ -299,7 +299,14 @@ function render(){
   $('#nav').innerHTML=TABS.map(t=>'<button class="'+(S.tab===t[0]?'on':'')+'" data-tab="'+t[0]+'">'+t[1]+'</button>').join('');
   if(!conn){S.tab='set';return renderSettings(m)}
   if(S.tab==='set')return renderSettings(m);
-  if(!S.ready){m.innerHTML='<p class="mute">Loading from GitHub…</p>';return}
+  if(!S.ready){
+    if(S.err){
+      const code=(S.err.match(/(\d{3})\s*$/)||[])[1];
+      m.innerHTML='<h2 style="margin-top:0">Could not load your data</h2><p>'+(code==='401'?'GitHub rejected the token. It may be expired, mistyped, or from before the repo moved to the organization.':(code==='404'||code==='403')?'This token cannot see Inflekt-Growth/inflekt-os-data. Create it with Resource owner = Inflekt-Growth, only that repo, Contents = Read and write. The organization may also need to approve it.':'Check your connection and try again.')+'</p><p class="mute">'+esc(S.err)+'</p><button class="b" id="re">Re-enter token</button><button class="g" id="retry">Try again</button>';
+      $('#re').onclick=()=>{S.tab='set';render()};$('#retry').onclick=()=>{S.err='';render();loadAll()};return;
+    }
+    m.innerHTML='<p class="mute">Loading from GitHub…</p>';return;
+  }
   ({today:renderToday,tasks:renderTasks,capture:renderCapture,outputs:renderLibrary,pipe:renderPipe})[S.tab](m);
 }
 $('#nav').addEventListener('click',e=>{const t=e.target.dataset.tab;if(t){S.tab=t;render()}});
@@ -546,7 +553,7 @@ function renderSettings(m){
     '<label>Meeting-notes folder ID(s), comma separated (from the folder URL)</label><input id="gc_f" value="'+esc(LS.get('gfolder',''))+'">'+
     '<button class="g" id="gc_s">Save Drive settings</button>'+
     '<h2>Advanced config (JSON)</h2><p class="mute">Tracks, recurring tasks, prep templates, Claude prompt templates, revenue.</p><textarea id="j_c" style="min-height:260px;font:12px Poppins,system-ui,sans-serif">'+esc(JSON.stringify(S.d.config,null,1))+'</textarea><button class="g" id="j_s">Save JSON</button>':'');
-  $('#s_s').onclick=()=>{if(!$('#s_m').value)return toast('Select your name');S.conn={repo:$('#s_r').value.trim(),token:$('#s_t').value.trim(),me:$('#s_m').value};LS.set('conn',S.conn);S.ready=false;S.tab='today';render();loadAll()};
+  $('#s_s').onclick=()=>{if(!$('#s_m').value)return toast('Select your name');S.conn={repo:$('#s_r').value.trim(),token:$('#s_t').value.trim(),me:$('#s_m').value};LS.set('conn',S.conn);S.ready=false;S.err='';S.tab='today';render();loadAll()};
   if(S.ready){
     $('#g_s').onclick=async()=>{try{await mutate('config',c=>{c.groupLink=$('#g_l').value.trim();c.team=$('#g_t').value.split(',').map(s=>s.trim()).filter(Boolean);c.emailTo=$('#g_e').value.split(',').map(s=>s.trim()).filter(Boolean);c.appUrl=$('#g_u').value.trim();return c},'team settings');toast('Saved')}catch(e){toast(e.message)}};
     $('#gc_s').onclick=()=>{LS.set('gcid',$('#gc_i').value.trim());LS.set('gfolder',$('#gc_f').value.trim());toast('Saved on this device')};
