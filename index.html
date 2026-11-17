@@ -251,7 +251,7 @@ $('#modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal()})
 function form(title,fields,onOk,okLabel){
   modal('<h2 style="margin-top:0">'+esc(title)+'</h2>'+fields.map(f=>{
     const v=f.val??'';
-    if(f.type==='select')return '<label>'+f.label+'</label><select id="f_'+f.k+'">'+f.opts.map(o=>'<option'+(o===v?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select>';
+    if(f.type==='select')return '<label>'+f.label+'</label><select id="f_'+f.k+'">'+f.opts.map(o=>{const ov=Array.isArray(o)?o[0]:o,ol=Array.isArray(o)?o[1]:o;return '<option value="'+esc(ov)+'"'+(ov===v?' selected':'')+'>'+esc(ol)+'</option>'}).join('')+'</select>';
     if(f.type==='area')return '<label>'+f.label+'</label><textarea id="f_'+f.k+'">'+esc(v)+'</textarea>';
     return '<label>'+f.label+'</label><input id="f_'+f.k+'" type="'+(f.type||'text')+'" value="'+esc(v)+'">';
   }).join('')+'<button class="b" id="f_ok">'+(okLabel||'Save')+'</button><button class="g" onclick="closeModal()">Cancel</button>');
@@ -260,7 +260,12 @@ function form(title,fields,onOk,okLabel){
 
 /* ============ views ============ */
 const TABS=[['today','Today'],['tasks','Tasks'],['capture','Capture'],['outputs','Library'],['pipe','Pipeline']];
+const tn=s=>String(s||'').replace(/^T\d+\s+/,'');   // display name of a track (no T1/T2 prefix)
+const DEFAULT_TEAM=['Anand','Vishnu','Abhishek'];
+S.stack=[];
 function render(){
+  if(S.lastTab!==undefined&&S.tab!==S.lastTab&&!S.popping){S.stack.push(S.lastTab);if(S.stack.length>20)S.stack.shift()}
+  S.lastTab=S.tab;S.popping=false;
   const conn=S.conn.repo&&S.conn.token,m=$('#main');
   $('#nav').style.display=conn?'flex':'none';
   $('#nav').innerHTML=TABS.map(t=>'<button class="'+(S.tab===t[0]?'on':'')+'" data-tab="'+t[0]+'">'+t[1]+'</button>').join('');
@@ -285,7 +290,7 @@ function taskRow(t,o){
   if(t.status==='waiting')sub.push('Waiting on '+esc(t.waitingOn||'someone')+(pd(t.waitSince)?', '+diff(pd(t.waitSince),td)+'d':''));
   if(t.status==='dropped')sub.push('Dropped');
   if(o.owner)sub.push(esc(t.owner||'unassigned'));
-  if(t.track)sub.push(esc(t.track));
+  if(t.track)sub.push(esc(tn(t.track)));
   if(o.raised&&pd(t.created))sub.push('raised '+fshort(pd(t.created)));
   const badge=(t.slips||0)>0?'<span class="badge">moved '+t.slips+'x</span>':'';
   return '<div class="tr" data-id="'+t.id+'"><button class="dotbtn" data-act="status" aria-label="'+ST[t.status]+'"><span class="dot '+t.status+'"></span></button>'+
@@ -341,11 +346,11 @@ function renderToday(m){
   const b=briefData(S.d),c=S.d.config,text=buildBrief(S.d),td=b.date;
   const waitRows=b.waiting.map(t=>taskRow(t,{acts:false,owner:true})).join('');
   m.innerHTML='<h1>'+today().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})+'</h1>'+
-   '<button class="b big" id="send">Copy brief + open WhatsApp group</button><button class="g" id="ref">Refresh</button>'+
-   b.owners.map(o=>ownerSection(o.name,o.total,o.tasks.length?o.tasks.map(t=>taskRow(t,{acts:false})).join(''):'<div class="tr"><span></span><span></span><span class="mute">Free - pick from backlog / BD outreach</span></div>')).join('')+
+   b.owners.slice().sort((x,y)=>(y.name===S.conn.me)-(x.name===S.conn.me)).map(o=>ownerSection(o.name+(o.name===S.conn.me?' (you)':''),o.total,o.tasks.length?o.tasks.map(t=>taskRow(t,{acts:false})).join(''):'<div class="tr"><span></span><span></span><span class="mute">Free - pick from backlog / BD outreach</span></div>')).join('')+
    (b.waiting.length?'<h2>Waiting on others <span class="cnt">'+b.waiting.length+'</span></h2>'+tableHtml(waitRows,'Deadline'):'')+
    (b.closed.length?'<h2>Closed this week <span class="cnt ok">'+b.closed.length+'</span></h2>'+tableHtml(b.closed.slice(0,8).map(t=>taskRow(t,{mode:'done',acts:false,owner:true})).join(''),'Done on'):'')+
-   '<h2>Watch-outs</h2>'+(b.flags.length?'<ul class="flags">'+b.flags.map(f=>'<li>'+esc(f)+'</li>').join('')+'</ul>':'<p class="mute">Nothing flagged.</p>');
+   '<h2>Watch-outs</h2>'+(b.flags.length?'<ul class="flags">'+b.flags.map(f=>'<li>'+esc(f)+'</li>').join('')+'</ul>':'<p class="mute">Nothing flagged.</p>')+
+   '<div style="margin-top:22px"><button class="b big" id="send">Copy brief + open WhatsApp group</button><button class="g" id="ref">Refresh</button></div>';
   $('#send').onclick=()=>{copy(text);toast('Brief copied - paste in the group');window.open(c.groupLink||'https://wa.me/?text='+encodeURIComponent(text),'_blank')};
   $('#ref').onclick=loadAll;bindTasks(m);
 }
@@ -359,12 +364,12 @@ function renderTasks(m){
   const opts={mode:closedView?'done':'open',owner:f==='all',raised:true};
   let body;
   if(!list.length)body='<p class="mute">Nothing here.</p>';
-  else if(view==='open'&&f==='all')body=team.concat(['']).map(p=>{const ts=list.filter(t=>(t.owner||'')===p);return ts.length?ownerSection(p||'Unassigned',ts.length,ts.map(t=>taskRow(t,opts)).join('')):''}).join('');
+  else if(view==='open'&&f==='all')body=[S.conn.me,...team.filter(p=>p!==S.conn.me),''].map(p=>{const ts=list.filter(t=>(t.owner||'')===p);return ts.length?ownerSection(p||'Unassigned',ts.length,ts.map(t=>taskRow(t,opts)).join('')):''}).join('');
   else body='<p class="mute">'+list.length+' task'+(list.length>1?'s':'')+(closedView?'. Tap the circle to reopen.':'')+'</p>'+tableHtml(list.map(t=>taskRow(t,opts)).join(''),closedView?'Done on':'Deadline');
   const tracks=(c.tracks||[]).map(x=>x.name);
   m.innerHTML='<div>'+[['me','Me'],...team.map(p=>[p,p]),['all','All']].map(x=>'<span class="chip '+(f===x[0]?'on':'')+'" data-f="'+x[0]+'">'+esc(x[1])+'</span>').join('')+'</div>'+
    '<div style="margin-top:6px">'+Object.keys(VIEWS).map(k=>'<span class="chip '+(view===k?'on':'')+'" data-v="'+k+'">'+VIEWS[k][0]+'</span>').join('')+'</div>'+
-   '<select id="trk" style="margin-top:8px"><option value="">All tracks</option>'+tracks.map(x=>'<option'+(x===tr?' selected':'')+'>'+esc(x)+'</option>').join('')+'</select>'+
+   '<select id="trk" style="margin-top:8px"><option value="">All tracks</option>'+tracks.map(x=>'<option value="'+esc(x)+'"'+(x===tr?' selected':'')+'>'+esc(tn(x))+'</option>').join('')+'</select>'+
    '<button class="b" id="add">+ Add task</button>'+body;
   m.querySelectorAll('[data-f]').forEach(e=>e.onclick=()=>{S.filter=e.dataset.f;render()});
   m.querySelectorAll('[data-v]').forEach(e=>e.onclick=()=>{S.view=e.dataset.v;render()});
@@ -374,7 +379,7 @@ function renderTasks(m){
 function editTask(t){
   const c=S.d.config,tpls=['(none)',...(c.prompts||[]).map(p=>p.name)];
   const fs=[{k:'title',label:'Task',val:t?.title},{k:'owner',label:'Owner',type:'select',opts:['',...c.team],val:t?.owner||''},{k:'due',label:'Due',type:'date',val:t?.due},
-   {k:'pri',label:'Priority',type:'select',opts:['P1','P2','P3'],val:t?.pri||'P2'},{k:'track',label:'Track',type:'select',opts:['',...(c.tracks||[]).map(x=>x.name)],val:t?.track||''}];
+   {k:'pri',label:'Priority',type:'select',opts:['P1','P2','P3'],val:t?.pri||'P2'},{k:'track',label:'Track',type:'select',opts:[['',''],...(c.tracks||[]).map(x=>[x.name,tn(x.name)])],val:t?.track||''}];
   if(!t){fs.push({k:'tpl',label:'Claude prompt template (optional)',type:'select',opts:tpls},{k:'subject',label:'Subject for the prompt (e.g. brand name)'},{k:'context',label:'Extra context (optional)',type:'area'})}
   form(t?'Edit task':'New task',fs,async o=>{
     if(!o.title.trim())throw new Error('Task text needed');
@@ -502,7 +507,7 @@ function renderSettings(m){
   m.innerHTML='<h2 style="margin-top:0">Connect</h2><p class="mute">Data lives in your private GitHub repo. Each partner pastes their own token once on their phone/laptop.</p>'+
    '<label>Data repo (owner/name)</label><input id="s_r" value="'+esc(c.repo)+'" placeholder="anandmenongrowth/inflekt-os-data">'+
    '<label>GitHub token (fine-grained, Contents: read &amp; write on that repo only)</label><input id="s_t" type="password" value="'+esc(c.token)+'">'+
-   '<label>I am</label><input id="s_m" value="'+esc(c.me)+'" placeholder="Anand">'+
+   '<label>I am</label><select id="s_m"><option value="">Select your name</option>'+((S.d.config&&S.d.config.team)||DEFAULT_TEAM).map(n=>'<option'+(n===c.me?' selected':'')+'>'+esc(n)+'</option>').join('')+'</select>'+
    '<button class="b" id="s_s">Save + connect</button>'+
    (S.ready?'<h2>Team settings</h2><label>WhatsApp group link</label><input id="g_l" value="'+esc(S.d.config.groupLink||'')+'">'+
     '<label>Team (comma separated)</label><input id="g_t" value="'+esc((S.d.config.team||[]).join(', '))+'">'+
@@ -513,13 +518,26 @@ function renderSettings(m){
     '<label>Meeting-notes folder ID(s), comma separated (from the folder URL)</label><input id="gc_f" value="'+esc(LS.get('gfolder',''))+'">'+
     '<button class="g" id="gc_s">Save Drive settings</button>'+
     '<h2>Advanced config (JSON)</h2><p class="mute">Tracks, recurring tasks, prep templates, Claude prompt templates, revenue.</p><textarea id="j_c" style="min-height:260px;font:12px Poppins,system-ui,sans-serif">'+esc(JSON.stringify(S.d.config,null,1))+'</textarea><button class="g" id="j_s">Save JSON</button>':'');
-  $('#s_s').onclick=()=>{S.conn={repo:$('#s_r').value.trim(),token:$('#s_t').value.trim(),me:$('#s_m').value.trim()};LS.set('conn',S.conn);S.ready=false;S.tab='today';render();loadAll()};
+  $('#s_s').onclick=()=>{if(!$('#s_m').value)return toast('Select your name');S.conn={repo:$('#s_r').value.trim(),token:$('#s_t').value.trim(),me:$('#s_m').value};LS.set('conn',S.conn);S.ready=false;S.tab='today';render();loadAll()};
   if(S.ready){
     $('#g_s').onclick=async()=>{try{await mutate('config',c=>{c.groupLink=$('#g_l').value.trim();c.team=$('#g_t').value.split(',').map(s=>s.trim()).filter(Boolean);c.emailTo=$('#g_e').value.split(',').map(s=>s.trim()).filter(Boolean);c.appUrl=$('#g_u').value.trim();return c},'team settings');toast('Saved')}catch(e){toast(e.message)}};
     $('#gc_s').onclick=()=>{LS.set('gcid',$('#gc_i').value.trim());LS.set('gfolder',$('#gc_f').value.trim());toast('Saved on this device')};
     $('#j_s').onclick=async()=>{try{const j=JSON.parse($('#j_c').value);await mutate('config',()=>j,'config');toast('Saved')}catch(e){toast('Invalid JSON or write failed')}};
   }
 }
+/* ---- back button: one step at a time (dialog > review screen > previous tab > Today); double press on Today exits ---- */
+let exitAt=0;
+try{history.replaceState({s:0},'');history.pushState({s:1},'')}catch(e){}
+window.addEventListener('popstate',()=>{
+  const rearm=()=>{try{history.pushState({s:1},'')}catch(e){}};
+  if($('#modal').style.display==='flex'){closeModal();return rearm()}
+  if(S.tab==='capture'&&CAP.items){CAP.items=null;render();return rearm()}
+  if(S.stack.length){S.tab=S.stack.pop();S.popping=true;render();return rearm()}
+  if(S.tab!=='today'){S.tab='today';S.popping=true;render();return rearm()}
+  const now=Date.now();
+  if(now-exitAt<2200){history.back();return}
+  exitAt=now;toast('Press back again to exit');rearm();
+});
 if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
 if(!coreOK)document.getElementById('main').innerHTML='<p>Updating the app... if this stays, close and reopen it.</p>';else if(S.conn.repo&&S.conn.token)loadAll();else render();
 </script>
