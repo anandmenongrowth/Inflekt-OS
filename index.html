@@ -3,7 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#1f3a5f">
+<meta name="theme-color" content="#0e0f11">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -11,16 +13,17 @@
 <meta name="apple-mobile-web-app-title" content="Inflekt OS">
 <title>Inflekt OS</title>
 <style>
-:root{--bg:#f6f7f9;--card:#fff;--ink:#1b1f24;--mute:#6a737d;--line:#e3e6ea;--pri:#1f3a5f;--pri-ink:#fff;--ok:#1a7f4b;--warn:#b54708;--bad:#b42318}
-@media(prefers-color-scheme:dark){:root{--bg:#0f1317;--card:#171d23;--ink:#e8ecf0;--mute:#8b96a1;--line:#27303a;--pri:#4b79b5;--pri-ink:#fff;--ok:#4cc38a;--warn:#f0a35e;--bad:#f27d72}}
+:root{--bg:#f4f6f7;--card:#fff;--ink:#16191b;--mute:#66727a;--line:#e1e6e8;--pri:#1b7f88;--pri-ink:#fff;--brand:#2296a0;--ok:#1a7f4b;--warn:#d97c1d;--bad:#e85442;--head:#0e0f11}
+@media(prefers-color-scheme:dark){:root{--bg:#0e0f11;--card:#17191c;--ink:#eef2f3;--mute:#8e9aa1;--line:#262b2f;--pri:#1b7f88;--pri-ink:#fff;--brand:#2fb1bd;--ok:#4cc38a;--warn:#f58327;--bad:#f06a58;--head:#0e0f11}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding-bottom:84px}
-header{position:sticky;top:0;background:var(--pri);color:var(--pri-ink);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;z-index:5}
-header b{font-size:17px}#sync{font-size:12px;opacity:.85}
+button,input,select,textarea{font-family:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 Poppins,system-ui,sans-serif;padding-bottom:84px}
+header{position:sticky;top:0;background:var(--head);color:#fff;border-bottom:2px solid var(--brand);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;z-index:5}
+.logo{width:104px;height:34px;background:url(logo.png) no-repeat;background-size:128px 128px;background-position:-12px -42px}header small{color:var(--brand);font-weight:600;letter-spacing:.14em;margin-left:6px}#sync{font-size:12px;opacity:.85}
 main{max-width:760px;margin:0 auto;padding:12px 16px}
 nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom);z-index:5}
 nav button{flex:1;border:0;background:none;color:var(--mute);padding:12px 2px;font-size:12px}
-nav button.on{color:var(--pri);font-weight:700;border-top:2px solid var(--pri)}
+nav button.on{color:var(--brand);font-weight:700;border-top:2px solid var(--brand)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0}
 h2{font-size:16px;margin:16px 0 4px}
 button.b,a.b{display:inline-block;background:var(--pri);color:var(--pri-ink);border:0;border-radius:10px;padding:10px 14px;font-size:14px;text-decoration:none;margin:4px 4px 4px 0}
@@ -29,11 +32,11 @@ button.s{padding:5px 9px;font-size:12px}
 input,select,textarea{width:100%;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px;font:inherit;margin:3px 0 8px}
 textarea{min-height:110px}
 label{font-size:12px;color:var(--mute)}
-pre.brief{white-space:pre-wrap;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace;margin:0}
+pre.brief{white-space:pre-wrap;font:13px/1.55 Poppins,system-ui,sans-serif;margin:0}
 .row{display:flex;gap:8px;align-items:flex-start}.row>*{flex:1}
 .t{display:flex;gap:10px}.t .x{flex:1}.t small{color:var(--mute)}
 .chip{display:inline-block;border:1px solid var(--line);border-radius:99px;padding:4px 11px;margin:2px 4px 2px 0;font-size:13px;background:var(--card);color:var(--ink)}
-.chip.on{background:var(--pri);color:var(--pri-ink);border-color:var(--pri)}
+.chip.on{background:var(--brand);color:#fff;border-color:var(--brand)}
 .P1{color:var(--bad);font-weight:700}.P2{color:var(--warn)}.P3{color:var(--mute)}
 .over{color:var(--bad)}.done{opacity:.5;text-decoration:line-through}
 #modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-end;justify-content:center;z-index:9}
@@ -44,7 +47,7 @@ pre.brief{white-space:pre-wrap;font:13px/1.45 ui-monospace,Menlo,Consolas,monosp
 </style>
 </head>
 <body>
-<header><b>Inflekt OS</b><span id="sync">not connected</span></header>
+<header><div style="display:flex;align-items:center"><div class="logo" role="img" aria-label="Inflekt"></div><small>OS</small></div><span id="sync">not connected</span></header>
 <main id="main"></main>
 <nav id="nav"></nav>
 <div id="modal"><div class="in" id="mbody"></div></div>
@@ -406,7 +409,7 @@ function renderSettings(m){
     '<h2>Google Drive (this device only)</h2><label>Google OAuth client ID</label><input id="gc_i" value="'+esc(LS.get('gcid',''))+'" placeholder="123...apps.googleusercontent.com">'+
     '<label>Meeting-notes folder ID(s), comma separated (from the folder URL)</label><input id="gc_f" value="'+esc(LS.get('gfolder',''))+'">'+
     '<button class="g" id="gc_s">Save Drive settings</button>'+
-    '<h2>Advanced config (JSON)</h2><p class="mute">Tracks, recurring tasks, prep templates, Claude prompt templates, revenue.</p><textarea id="j_c" style="min-height:260px;font:12px ui-monospace,monospace">'+esc(JSON.stringify(S.d.config,null,1))+'</textarea><button class="g" id="j_s">Save JSON</button>':'');
+    '<h2>Advanced config (JSON)</h2><p class="mute">Tracks, recurring tasks, prep templates, Claude prompt templates, revenue.</p><textarea id="j_c" style="min-height:260px;font:12px Poppins,system-ui,sans-serif">'+esc(JSON.stringify(S.d.config,null,1))+'</textarea><button class="g" id="j_s">Save JSON</button>':'');
   $('#s_s').onclick=()=>{S.conn={repo:$('#s_r').value.trim(),token:$('#s_t').value.trim(),me:$('#s_m').value.trim()};LS.set('conn',S.conn);S.ready=false;S.tab='today';render();loadAll()};
   if(S.ready){
     $('#g_s').onclick=async()=>{try{await mutate('config',c=>{c.groupLink=$('#g_l').value.trim();c.team=$('#g_t').value.split(',').map(s=>s.trim()).filter(Boolean);c.emailTo=$('#g_e').value.split(',').map(s=>s.trim()).filter(Boolean);c.appUrl=$('#g_u').value.trim();return c},'team settings');toast('Saved')}catch(e){toast(e.message)}};
