@@ -101,7 +101,8 @@ const slug=s=>String(s).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',2600)}
 
 /* ============ state + GitHub sync ============ */
-const S={conn:LS.get('conn',{repo:'anandmenongrowth/inflekt-os-data',token:'',me:''}),d:{},tab:'today',filter:'me',ready:false};
+const S={conn:LS.get('conn',{repo:'Inflekt-Growth/inflekt-os-data',token:'',me:''}),d:{},tab:'today',filter:'me',ready:false};
+if(S.conn.repo==='anandmenongrowth/inflekt-os-data'){S.conn.repo='Inflekt-Growth/inflekt-os-data';LS.set('conn',S.conn)}   // repo moved to the organisation
 const FILES={config:{},tasks:[],events:[],pipeline:[],decisions:[],imported:[]};
 const API='https://api.github.com/repos/';
 async function gh(path,opt={}){
@@ -532,7 +533,7 @@ function editLead(x){
 function renderSettings(m){
   const c=S.conn;
   m.innerHTML='<h2 style="margin-top:0">Connect</h2><p class="mute">Data lives in your private GitHub repo. Each partner pastes their own token once on their phone/laptop.</p>'+
-   '<label>Data repo (owner/name)</label><input id="s_r" value="'+esc(c.repo)+'" placeholder="anandmenongrowth/inflekt-os-data">'+
+   '<label>Data repo (owner/name)</label><input id="s_r" value="'+esc(c.repo)+'" placeholder="Inflekt-Growth/inflekt-os-data">'+
    '<label>GitHub token (fine-grained, Contents: read &amp; write on that repo only)</label><input id="s_t" type="password" value="'+esc(c.token)+'">'+
    '<label>I am</label><select id="s_m"><option value="">Select your name</option>'+((S.d.config&&S.d.config.team)||DEFAULT_TEAM).map(n=>'<option'+(n===c.me?' selected':'')+'>'+esc(n)+'</option>').join('')+'</select>'+
    '<button class="b" id="s_s">Save + connect</button>'+
