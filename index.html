@@ -120,7 +120,15 @@ async function rd(path,def){
   return{json:JSON.parse(JSON.stringify(json)),sha:j.sha};
 }
 /** Optimistic write: update the screen instantly, save to GitHub in the background, roll back + tell the user if it fails. */
-let pending=0;
+let pending=0,BUSY=false;
+/** add items by id only if absent: running it twice (double tap, retry) can never create duplicates */
+const addOnce=(l,items)=>{const ids=new Set(l.map(x=>x.id));return l.concat(items.filter(x=>!ids.has(x.id)))};
+/** run an async action once: ignore further taps while it runs, grey out the button and say "Saving..." */
+async function once(btn,fn){
+  if(BUSY)return;BUSY=true;const old=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.textContent='Saving…'}
+  try{await fn()}finally{BUSY=false;if(btn&&btn.isConnected){btn.disabled=false;btn.textContent=old}}
+}
 function optimistic(name,fn,msg){
   const before=JSON.stringify(S.d[name]);
   try{const out=fn(JSON.parse(before));if(out!==false)S.d[name]=out}catch(e){}
@@ -283,7 +291,7 @@ function form(title,fields,onOk,okLabel){
     if(f.type==='area')return '<label>'+f.label+'</label><textarea id="f_'+f.k+'">'+esc(v)+'</textarea>';
     return '<label>'+f.label+'</label><input id="f_'+f.k+'" type="'+(f.type||'text')+'" value="'+esc(v)+'">';
   }).join('')+'<button class="b" id="f_ok">'+(okLabel||'Save')+'</button><button class="g" onclick="closeModal()">Cancel</button>');
-  $('#f_ok').onclick=async()=>{const o={};fields.forEach(f=>o[f.k]=$('#f_'+f.k).value);try{await onOk(o);closeModal()}catch(e){toast(e.message)}};
+  $('#f_ok').onclick=()=>{const o={};fields.forEach(f=>o[f.k]=$('#f_'+f.k).value);once($('#f_ok'),async()=>{try{await onOk(o);closeModal()}catch(e){toast(e.message)}})};
 }
 
 /* ============ views ============ */
@@ -423,7 +431,7 @@ function editTask(t){
         Object.assign(x,{title:o.title,owner:o.owner,due:o.due,pri:o.pri,track:o.track});return l},'edit task')}
     else{const n=mk({title:o.title,owner:o.owner,due:o.due,pri:o.pri,track:o.track,source:'Manual'});if(!n.owner)n.owner=autoOwner(n);
       if(o.tpl!=='(none)')n.ai={tpl:o.tpl,subject:o.subject,context:o.context};
-      optimistic('tasks',l=>l.concat(n),'add task')}
+      optimistic('tasks',l=>addOnce(l,[n]),'add task')}
     render();
   });
 }
@@ -447,7 +455,7 @@ function claudeModal(t){
     $('#c_sub').oninput=regen;$('#c_ctx').oninput=regen;
     $('#c_open').onclick=async()=>{openClaude($('#c_p').value);if(t&&t.status==='todo'){try{await mutate('tasks',l=>{const x=l.find(y=>y.id===t.id);if(!x)return false;x.status='doing';return l},'task started')}catch(e){}}};
     $('#c_copy').onclick=()=>{copy($('#c_p').value);toast('Copied')};
-    $('#c_save').onclick=async()=>{
+    $('#c_save').onclick=()=>once($('#c_save'),async()=>{
       const body=$('#c_out').value.trim(),title=$('#c_title').value.trim()||'Untitled';
       if(!body)return toast('Paste Claude\'s output first');
       const path='outputs/'+ymd(today())+'_'+slug(title)+'.md';
@@ -456,7 +464,7 @@ function claudeModal(t){
         if(t)await mutate('tasks',l=>{const x=l.find(y=>y.id===t.id);if(!x)return false;x.output=path;return l},'link output');
         closeModal();toast('Saved to library');S.tab='outputs';render();
       }catch(e){toast(e.message)}
-    };
+    });
   };
   draw();
 }
@@ -507,21 +515,29 @@ function renderReview(m){
   $('#rv_x').onclick=()=>{CAP.items=null;render()};
   $('#rv_ok').onclick=pushItems;
 }
-async function pushItems(){
-  const src='Meeting: '+(CAP.name||'notes'),sel=CAP.items.filter(i=>i.on&&String(i.text||'').trim());
-  try{
-    const tasks=sel.filter(i=>i.type==='task').map(i=>{const t=mk({title:i.text,owner:i.owner,due:i.due,pri:i.priority,track:i.track,source:src,notes:i.detail});if(!t.owner)t.owner=autoOwner(t);return t});
-    const events=sel.filter(i=>i.type==='event').map(i=>({id:uid(),date:i.due,event:i.text,template:'',owner:i.owner||S.conn.me,track:i.track||'',notes:i.detail||''}));
-    const leads=sel.filter(i=>i.type==='lead').map(i=>({id:uid(),company:i.text,stage:'Lead',owner:i.owner||'',retainer:'',prob:'',last:'',next:i.detail||'',nextDate:i.due||''}));
-    const decs=sel.filter(i=>i.type==='decision'||i.type==='reading').map(i=>({id:uid(),date:ymd(today()),type:i.type,text:i.text,owner:i.owner||'',source:src,detail:i.detail||''}));
-    if(tasks.length)await mutate('tasks',l=>l.concat(tasks),'meeting tasks: '+CAP.name);
-    if(events.length)await mutate('events',l=>l.concat(events),'events from '+CAP.name);
-    if(leads.length)await mutate('pipeline',l=>l.concat(leads),'leads from '+CAP.name);
-    if(decs.length)await mutate('decisions',l=>l.concat(decs),'decisions from '+CAP.name);
-    if(CAP.driveId){const rec={id:CAP.driveId,name:CAP.name,by:S.conn.me,at:ymd(today())};await mutate('imported',l=>l.some(x=>x.id===rec.id)?false:l.concat(rec),'imported '+CAP.name)}
-    if($('#rv_n').checked&&CAP.text)await saveText('notes/'+ymd(today())+'_'+slug(CAP.name||'notes')+'.md','# '+(CAP.name||'Notes')+'\n\n_'+ymd(today())+' · pushed by '+S.conn.me+'_\n\n'+CAP.text,'notes: '+CAP.name);
-    toast('Pushed '+sel.length+' items');CAP={name:'',text:'',items:null};S.tab='tasks';S.filter='all';render();
-  }catch(e){toast(e.message)}
+let pushing=false;
+function pushItems(){
+  if(pushing||!CAP.items)return;pushing=true;
+  const name=CAP.name,text=CAP.text,driveId=CAP.driveId,keepNotes=$('#rv_n')?$('#rv_n').checked:true;
+  const src='Meeting: '+(name||'notes'),sel=CAP.items.filter(i=>i.on&&String(i.text||'').trim());
+  const tasks=sel.filter(i=>i.type==='task').map(i=>{const t=mk({title:i.text,owner:i.owner,due:i.due,pri:i.priority,track:i.track,source:src,notes:i.detail});if(!t.owner)t.owner=autoOwner(t);return t});
+  const events=sel.filter(i=>i.type==='event').map(i=>({id:uid(),date:i.due,event:i.text,template:'',owner:i.owner||S.conn.me,track:i.track||'',notes:i.detail||''}));
+  const leads=sel.filter(i=>i.type==='lead').map(i=>({id:uid(),company:i.text,stage:'Lead',owner:i.owner||'',retainer:'',prob:'',last:'',next:i.detail||'',nextDate:i.due||''}));
+  const decs=sel.filter(i=>i.type==='decision'||i.type==='reading').map(i=>({id:uid(),date:ymd(today()),type:i.type,text:i.text,owner:i.owner||'',source:src,detail:i.detail||''}));
+  // leave the review screen immediately, so there is no button left to press twice
+  CAP={name:'',text:'',items:null};S.tab='tasks';S.filter='all';S.view='open';render();
+  (async()=>{
+    try{
+      if(tasks.length)await optimistic('tasks',l=>addOnce(l,tasks),'meeting tasks: '+name);
+      if(events.length)await optimistic('events',l=>addOnce(l,events),'events from '+name);
+      if(leads.length)await optimistic('pipeline',l=>addOnce(l,leads),'leads from '+name);
+      if(decs.length)await optimistic('decisions',l=>addOnce(l,decs),'decisions from '+name);
+      if(driveId){const rec={id:driveId,name,by:S.conn.me,at:ymd(today())};await optimistic('imported',l=>l.some(x=>x.id===rec.id)?false:l.concat(rec),'imported '+name)}
+      if(keepNotes&&text)await saveText('notes/'+ymd(today())+'_'+slug(name||'notes')+'.md','# '+(name||'Notes')+'\n\n_'+ymd(today())+' · pushed by '+S.conn.me+'_\n\n'+text,'notes: '+name);
+      toast('Pushed '+sel.length+' items');
+    }catch(e){toast(e.message)}
+    finally{pushing=false}
+  })();
 }
 function renderPipe(m){
   const p=(S.d.pipeline||[]).slice().sort((a,b)=>(pd(a.last)||0)-(pd(b.last)||0));
@@ -535,7 +551,8 @@ function editLead(x){
   form(x?'Edit lead':'New lead',[{k:'company',label:'Company',val:x?.company},{k:'stage',label:'Stage',type:'select',opts:['Lead','Researching','Contacted','Call booked','Proposal','Won','Lost'],val:x?.stage||'Lead'},
    {k:'owner',label:'Owner',type:'select',opts:['',...S.d.config.team],val:x?.owner||''},{k:'retainer',label:'Expected retainer (Rs lakh/mo)',val:x?.retainer},{k:'prob',label:'Probability %',val:x?.prob},{k:'next',label:'Next step',val:x?.next}],
    async o=>{if(!o.company.trim())throw new Error('Company needed');
-    await mutate('pipeline',l=>{if(x){Object.assign(l.find(y=>y.id===x.id)||{},o)}else l.push({id:uid(),last:'',nextDate:'',...o});return l},'pipeline');render()});
+    const nl=x?null:{id:uid(),last:'',nextDate:'',...o};   // id fixed once, so a repeat can never add a second copy
+    optimistic('pipeline',l=>{if(x){Object.assign(l.find(y=>y.id===x.id)||{},o);return l}return addOnce(l,[nl])},'pipeline');});
 }
 function renderSettings(m){
   const c=S.conn;
