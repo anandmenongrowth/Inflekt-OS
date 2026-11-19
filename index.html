@@ -83,6 +83,13 @@ label{font-size:14px;font-weight:600;color:var(--mute)}
 .prow{cursor:pointer}.prow .pmain b{font-size:15.5px;font-weight:600}.pd{font-size:13px;color:var(--mute);font-weight:500}
 .pill{display:inline-block;color:#fff;font-size:12px;font-weight:700;border-radius:99px;padding:2px 10px}
 .pdet{grid-column:1/-1;margin-top:10px;font-size:14px}.pk{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mute);margin-right:6px}.pms{white-space:pre-line;font-size:14px}
+.evh{display:flex;align-items:center;gap:10px;border-bottom:3px solid #6b5bd2;padding-bottom:6px;margin:18px 0 8px}.evh h2{margin:0;color:#5b4bc4}.evh .cnt{background:#6b5bd2}
+.evt{display:flex;gap:12px;align-items:flex-start;background:#f1eefc;border:1px solid #d9d2f5;border-left:6px solid #6b5bd2;border-radius:14px;padding:11px 12px;margin:8px 0}
+.evd{flex:none;width:50px;text-align:center;background:#6b5bd2;color:#fff;border-radius:10px;padding:5px 0;line-height:1.15}.evd b{display:block;font-size:20px;font-weight:700}.evd span{font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.evm{flex:1;min-width:0}.evt-t{font-size:16px;font-weight:700}.etype{display:inline-block;background:#6b5bd2;color:#fff;border-radius:99px;padding:0 9px;font-size:11.5px;font-weight:700}
+.evt .sub{margin-top:4px}.evt .acts{margin-top:4px}
+@media(prefers-color-scheme:dark){.evt{background:#241f3d;border-color:#3b3366}.evh h2{color:#a99cff}}
+.rvev{background:#f1eefc;border-left:6px solid #6b5bd2}@media(prefers-color-scheme:dark){.rvev{background:#241f3d}}
 .badge{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:1px 7px;background:#fce8b2;color:#6b4a00;margin-left:8px;vertical-align:middle}
 .cnt.ok{background:var(--st-done)}
 </style>
@@ -220,8 +227,8 @@ function extractPrompt(text,name){
   const c=S.d.config;
   return 'You are the task extractor for Inflekt OS. Today is '+ymd(today())+' ('+today().toLocaleDateString('en-GB',{weekday:'long'})+').\n'+
   'Team: '+(c.team||[]).join(', ')+'\nTracks: '+(c.tracks||[]).map(t=>t.name).join(' | ')+'\n\n'+
-  'From the text below, return ONLY a JSON array, no prose. Each item: {"type":"task|decision|event|lead|reading","text":"short imperative","owner":"one of the team or empty","due":"YYYY-MM-DD or empty","track":"closest track or empty","priority":"P1|P2|P3","detail":"optional one line"}.\n'+
-  'Rules: set owner only if explicitly assigned or unambiguous; never invent tasks; resolve relative dates against today; decisions = things agreed; event = a dated meeting/deadline; lead = a company to approach; reading = an article/link to read; skip chit-chat.\n\n'+
+  'From the text below, return ONLY a JSON array, no prose. Each item: {"type":"task|decision|event|lead|reading","text":"short imperative","owner":"one of the team or empty","due":"YYYY-MM-DD or empty","track":"closest track or empty","priority":"P1|P2|P3","detail":"optional one line","template":"for events only: one of ['+evTypes().join(' | ')+'] or empty"}.\n'+
+  'Rules: set owner only if explicitly assigned or unambiguous; never invent tasks; resolve relative dates against today; decisions = things agreed; event = a dated meeting/deadline (set template: a call or meeting with a prospect/client/external person = Exploratory call; an internal partner discussion = Internal discussion; otherwise empty); lead = a company to approach; reading = an article/link to read; skip chit-chat.\n\n'+
   (text?'SOURCE: '+(name||'notes')+'\n---\n'+text
    :'SOURCE: use the Granola connector. First list my meetings from the last 24 hours'+(name?' (and prefer the one named "'+name+'")':'')+'; then read the notes of each and extract from all of them. Add a "meeting" field (meeting title) to every item. If you cannot access Granola, tell me and stop.');
 }
@@ -404,6 +411,37 @@ function renderToday(m){
   $('#send').onclick=()=>{copy(text);toast('Brief copied - paste in the group');window.open(c.groupLink||'https://wa.me/?text='+encodeURIComponent(text),'_blank')};
   $('#ref').onclick=loadAll;bindTasks(m);
 }
+const evTypes=()=>[...new Set((S.d.config.prep||[]).map(p=>p.template).filter(Boolean))];
+function eventsHtml(view,tr){
+  if(view!=='open'&&view!=='all')return '';
+  const td=today();
+  let ev=(S.d.events||[]).filter(e=>!tr||e.track===tr);
+  if(view==='open')ev=ev.filter(e=>pd(e.date)&&diff(td,pd(e.date))>=0).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  else ev.sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  if(!ev.length)return view==='open'?'<div class="evh"><h2>Events</h2></div><p class="mute" style="margin:0 0 6px">No upcoming events. Add one, or confirm events found in Capture.</p>':'';
+  return '<div class="evh"><h2>Events</h2><span class="cnt">'+ev.length+'</span></div>'+ev.map(e=>{
+    const d=pd(e.date),n=d?diff(td,d):null,when=n===null?'No date':n===0?'Today':n===1?'Tomorrow':n>1?'In '+n+' days':Math.abs(n)+'d ago';
+    const prep=(S.d.tasks||[]).filter(t=>String(t.key||'').startsWith('EVT|'+e.id+'|'));
+    const sub=[];sub.push('<b>'+when+'</b>');if(e.owner)sub.push(esc(e.owner));if(e.track)sub.push('<span class="trk">'+esc(tn(e.track))+'</span>');
+    if(e.template)sub.push(prep.filter(t=>isOpen(t)).length+' of '+prep.length+' prep tasks open');
+    return '<div class="evt" data-eid="'+e.id+'"><div class="evd"><b>'+(d?d.getDate():'?')+'</b><span>'+(d?MONS[d.getMonth()]:'')+'</span></div><div class="evm"><div class="evt-t">'+esc(e.event)+'</div><div class="sub">'+(e.template?'<span class="etype">'+esc(e.template)+'</span> · ':'<span class="mute">No prep type</span> · ')+sub.join(' · ')+'</div>'+(e.notes?'<div class="sub">'+esc(e.notes)+'</div>':'')+'<div class="acts"><button class="g s" data-ea="edit">Edit event</button></div></div></div>'}).join('');
+}
+function editEvent(e){
+  const c=S.d.config;
+  form(e?'Edit event':'New event',[{k:'event',label:'Event / meeting',val:e?.event},{k:'date',label:'Date',type:'date',val:e?.date||ymd(today())},
+   {k:'template',label:'Type (decides which prep tasks are created)',type:'select',opts:[['','Other - no prep tasks'],...evTypes()],val:e?.template||''},
+   {k:'owner',label:'Owner',type:'select',opts:c.team,val:e?.owner||S.conn.me},
+   {k:'track',label:'Track',type:'select',opts:[['',''],...(c.tracks||[]).map(x=>[x.name,tn(x.name)])],val:e?.track||''},{k:'notes',label:'Notes',type:'area',val:e?.notes}],
+   async o=>{if(!o.event.trim())throw new Error('Event name needed');if(!o.date)throw new Error('Pick a date');
+    const ne=e?null:{id:uid(),...o};
+    await optimistic('events',l=>{if(e){Object.assign(l.find(y=>y.id===e.id)||{},o);return l}return addOnce(l,[ne])},'event');
+    materialize().then(()=>render()).catch(()=>{});toast(o.template?'Event saved - prep tasks are being created':'Event saved')});
+  if(e){const d=document.createElement('button');d.className='g';d.style.cssText='color:var(--bad);float:right';d.textContent='Delete';let armed=false;
+    d.onclick=()=>{if(!armed){armed=true;d.textContent='Tap again to delete (also removes its open prep tasks)';return}
+      once(d,async()=>{closeModal();const pre='EVT|'+e.id+'|';await optimistic('events',l=>l.filter(y=>y.id!==e.id),'delete event');
+        await optimistic('tasks',l=>{const n=l.filter(t=>!(String(t.key||'').startsWith(pre)&&isOpen(t)));return n.length===l.length?false:n},'remove prep tasks');toast('Event deleted')})};
+    $('#f_ok').parentNode.appendChild(d)}
+}
 function renderTasks(m){
   const c=S.d.config,team=c.team||[],f=S.filter,view=S.view||'open',tr=S.trackF||'';
   let list=(S.d.tasks||[]).filter(t=>(f==='all'?true:t.owner===(f==='me'?S.conn.me:f))&&(!tr||t.track===tr));
@@ -420,11 +458,12 @@ function renderTasks(m){
   m.innerHTML='<div class="chips">'+[['me','Me'],...team.map(p=>[p,p]),['all','All']].map(x=>'<span class="chip '+(f===x[0]?'on':'')+'" data-f="'+x[0]+'">'+esc(x[1])+'</span>').join('')+'</div>'+
    '<div class="chips">'+Object.keys(VIEWS).map(k=>'<span class="chip '+(view===k?'on':'')+'" data-v="'+k+'">'+VIEWS[k][0]+'</span>').join('')+'</div>'+
    '<div class="ctl"><select id="trk"><option value="">All tracks</option>'+tracks.map(x=>'<option value="'+esc(x)+'"'+(x===tr?' selected':'')+'>'+esc(tn(x))+'</option>').join('')+'</select>'+
-   '<button class="b" id="add">+ Add task</button></div>'+body;
+   '<button class="b" id="add">+ Task</button><button class="b" id="addev" style="background:#6b5bd2">+ Event</button></div>'+eventsHtml(view,tr)+(view==='open'||view==='all'?'<div class="evh" style="border-color:var(--brand)"><h2 style="color:var(--brand)">Tasks</h2></div>':'')+body;
   m.querySelectorAll('[data-f]').forEach(e=>e.onclick=()=>{S.filter=e.dataset.f;render()});
   m.querySelectorAll('[data-v]').forEach(e=>e.onclick=()=>{S.view=e.dataset.v;render()});
   $('#trk').onchange=e=>{S.trackF=e.target.value;render()};
-  $('#add').onclick=()=>editTask(null);bindTasks(m);
+  $('#add').onclick=()=>editTask(null);$('#addev').onclick=()=>editEvent(null);
+  m.querySelectorAll('[data-ea]').forEach(b=>b.onclick=()=>editEvent((S.d.events||[]).find(x=>x.id===b.closest('[data-eid]').dataset.eid)));bindTasks(m);
 }
 function editTask(t){
   const c=S.d.config,tpls=['(none)',...(c.prompts||[]).map(p=>p.name)];
@@ -508,17 +547,17 @@ function renderCapture(m){
   $('#cp_gr').onclick=()=>{keep();openClaude(extractPrompt('',CAP.name))};
   $('#cp_go').onclick=()=>{keep();if(!CAP.text.trim())return toast('Paste the notes first');openClaude(extractPrompt(CAP.text,CAP.name))};
   $('#cp_pv').onclick=()=>{keep();const raw=$('#cp_j').value,a=raw.indexOf('['),b=raw.lastIndexOf(']');
-    try{if(a<0||b<a)throw 0;CAP.items=JSON.parse(raw.slice(a,b+1)).map(i=>({on:true,...i}));render()}catch(e){toast('Could not read that JSON - copy Claude\'s whole reply')}};
+    try{if(a<0||b<a)throw 0;CAP.items=JSON.parse(raw.slice(a,b+1)).map(i=>({on:i.type!=='event',...i,template:evTypes().includes(i.template)?i.template:''}));render()}catch(e){toast('Could not read that JSON - copy Claude\'s whole reply')}};
 }
 function renderReview(m){
   const team=S.d.config.team||[];
   m.innerHTML='<h2 style="margin-top:0">Review '+CAP.items.length+' items</h2>'+CAP.items.map((it,i)=>
-   '<div class="card"><div class="row"><label style="flex:0 0 auto"><input type="checkbox" data-i="'+i+'" data-k="on" '+(it.on?'checked':'')+' style="width:20px;margin:0"> push</label><select data-i="'+i+'" data-k="type">'+['task','decision','event','lead','reading'].map(t=>'<option'+(t===it.type?' selected':'')+'>'+t+'</option>').join('')+'</select></div>'+
-   '<input data-i="'+i+'" data-k="text" value="'+esc(it.text)+'">'+
+   '<div class="card'+(it.type==='event'?' rvev':'')+'"><div class="row"><label style="flex:0 0 auto"><input type="checkbox" data-i="'+i+'" data-k="on" '+(it.on?'checked':'')+' style="width:20px;margin:0"> '+(it.type==='event'?'<b>confirm event</b>':'push')+'</label><select data-i="'+i+'" data-k="type">'+['task','decision','event','lead','reading'].map(t=>'<option'+(t===it.type?' selected':'')+'>'+t+'</option>').join('')+'</select></div>'+
+   '<input data-i="'+i+'" data-k="text" value="'+esc(it.text)+'">'+(it.type==='event'?'<label>Event type (auto-tagged) - tick confirm to add it to the Tasks tab and create its prep tasks</label><select data-i="'+i+'" data-k="template">'+[['','Other - no prep tasks'],...evTypes().map(t=>[t,t])].map(o=>'<option value="'+esc(o[0])+'"'+(o[0]===(it.template||'')?' selected':'')+'>'+esc(o[1])+'</option>').join('')+'</select>':'')+
    '<div class="row"><select data-i="'+i+'" data-k="owner">'+['',...team].map(o=>'<option'+(o===it.owner?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select><input type="date" data-i="'+i+'" data-k="due" value="'+esc(it.due||'')+'"><select data-i="'+i+'" data-k="priority">'+['P1','P2','P3'].map(o=>'<option'+(o===(it.priority||'P2')?' selected':'')+'>'+o+'</option>').join('')+'</select></div>'+(it.detail?'<small class="mute">'+esc(it.detail)+'</small>':'')+'</div>').join('')+
    '<label><input type="checkbox" id="rv_n" checked style="width:auto"> also save the raw notes to the library</label><br>'+
    '<button class="b" id="rv_ok">Push selected to Inflekt OS</button><button class="g" id="rv_x">Back</button>';
-  m.querySelectorAll('[data-i]').forEach(e=>e.onchange=()=>{const it=CAP.items[+e.dataset.i];it[e.dataset.k]=e.type==='checkbox'?e.checked:e.value});
+  m.querySelectorAll('[data-i]').forEach(e=>e.onchange=()=>{const it=CAP.items[+e.dataset.i];it[e.dataset.k]=e.type==='checkbox'?e.checked:e.value;if(e.dataset.k==='type'){if(it.type==='event'&&!it._ev){it._ev=1;it.on=false}render()}});
   $('#rv_x').onclick=()=>{CAP.items=null;render()};
   $('#rv_ok').onclick=pushItems;
 }
@@ -528,7 +567,7 @@ function pushItems(){
   const name=CAP.name,text=CAP.text,driveId=CAP.driveId,keepNotes=$('#rv_n')?$('#rv_n').checked:true;
   const src='Meeting: '+(name||'notes'),sel=CAP.items.filter(i=>i.on&&String(i.text||'').trim());
   const tasks=sel.filter(i=>i.type==='task').map(i=>{const t=mk({title:i.text,owner:i.owner,due:i.due,pri:i.priority,track:i.track,source:src,notes:i.detail});if(!t.owner)t.owner=autoOwner(t);return t});
-  const events=sel.filter(i=>i.type==='event').map(i=>({id:uid(),date:i.due,event:i.text,template:'',owner:i.owner||S.conn.me,track:i.track||'',notes:i.detail||''}));
+  const events=sel.filter(i=>i.type==='event').map(i=>({id:uid(),date:i.due,event:i.text,template:i.template||'',owner:i.owner||S.conn.me,track:i.track||'',notes:i.detail||''})).filter(e=>e.date&&!(S.d.events||[]).some(x=>x.date===e.date&&String(x.event).toLowerCase()===String(e.event).toLowerCase()));
   const leads=sel.filter(i=>i.type==='lead').map(i=>({id:uid(),company:i.text,status:'Warm',stage:'Lead',firstContact:ymd(today()),owner:i.owner||'',retainer:'',prob:'',last:'',next:i.detail||'',nextDate:i.due||''}));
   const decs=sel.filter(i=>i.type==='decision'||i.type==='reading').map(i=>({id:uid(),date:ymd(today()),type:i.type,text:i.text,owner:i.owner||'',source:src,detail:i.detail||''}));
   // leave the review screen immediately, so there is no button left to press twice
@@ -536,7 +575,7 @@ function pushItems(){
   (async()=>{
     try{
       if(tasks.length)await optimistic('tasks',l=>addOnce(l,tasks),'meeting tasks: '+name);
-      if(events.length)await optimistic('events',l=>addOnce(l,events),'events from '+name);
+      if(events.length){await optimistic('events',l=>addOnce(l,events),'events from '+name);await materialize()}
       if(leads.length)await optimistic('pipeline',l=>addOnce(l,leads),'leads from '+name);
       if(decs.length)await optimistic('decisions',l=>addOnce(l,decs),'decisions from '+name);
       if(driveId){const rec={id:driveId,name,by:S.conn.me,at:ymd(today())};await optimistic('imported',l=>l.some(x=>x.id===rec.id)?false:l.concat(rec),'imported '+name)}
