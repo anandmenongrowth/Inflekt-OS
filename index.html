@@ -118,7 +118,7 @@ function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';cl
 /* ============ state + GitHub sync ============ */
 const S={conn:LS.get('conn',{repo:'Inflekt-Growth/inflekt-os-data',token:'',me:''}),d:{},tab:'today',filter:'me',ready:false};
 if(S.conn.repo==='anandmenongrowth/inflekt-os-data'){S.conn.repo='Inflekt-Growth/inflekt-os-data';LS.set('conn',S.conn)}   // repo moved to the organisation
-const FILES={config:{},tasks:[],events:[],pipeline:[],decisions:[],imported:[]};
+const FILES={config:{},tasks:[],events:[],pipeline:[],decisions:[],imported:[],meetings:[]};
 const API='https://api.github.com/repos/';
 async function gh(path,opt={}){
   return fetch(API+S.conn.repo+path,{cache:'no-store',...opt,headers:{Authorization:'Bearer '+S.conn.token,Accept:'application/vnd.github+json',...(opt.headers||{})}});
@@ -157,7 +157,7 @@ async function syncData(){
     let changed=false;
     for(const k of Object.keys(FILES)){const r=await rd('data/'+k+'.json',FILES[k]);if(!r.same&&JSON.stringify(r.json)!==JSON.stringify(S.d[k])){S.d[k]=r.json;changed=true}}
     $('#sync').textContent='synced '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-    if(changed){if($('#modal').style.display==='flex')S.dirty=true;else if(S.tab!=='set'&&!(S.tab==='capture'&&CAP.text))render()}
+    if(changed){if($('#modal').style.display==='flex')S.dirty=true;else if(S.tab!=='set'&&S.tab!=='capture')render()}
   }catch(e){}
 }
 setInterval(syncData,45000);
@@ -197,6 +197,7 @@ async function delFile(path){
   const sha=(await r0.json()).sha;
   const r=await gh('/contents/'+path,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:'delete '+path+' ['+S.conn.me+']',sha})});
   if(!r.ok)throw new Error('delete failed: '+r.status);
+  if(path.startsWith('notes/')){await optimistic('meetings',l=>l.filter(x=>x.path!==path),'meeting index');await optimistic('decisions',l=>{const n=l.filter(x=>x.meeting!==path);return n.length===l.length?false:n},'decisions of deleted note')}
   if((S.d.tasks||[]).some(t=>t.output===path))await optimistic('tasks',l=>{l.forEach(t=>{if(t.output===path)t.output=''});return l},'clear output link');
 }
 async function loadAll(){
@@ -278,7 +279,7 @@ async function driveModal(){
     const files=await driveList(),done=new Set((S.d.imported||[]).map(x=>x.id));
     modal('<h2 style="margin-top:0">Notes from your Drive (last 3 weeks)</h2>'+(files.length?files.map((f,i)=>'<div class="card" data-d="'+i+'" style="cursor:pointer;'+(done.has(f.id)?'opacity:.5':'')+'"><b>'+esc(f.name)+'</b><br><small class="mute">'+fshort(new Date(f.modifiedTime))+(done.has(f.id)?' · already imported':' · new')+'</small></div>').join(''):'<p class="mute">No documents found. Set your meeting-notes folder ID in Settings.</p>')+'<button class="g" onclick="closeModal()">Close</button>');
     document.querySelectorAll('[data-d]').forEach(e=>e.onclick=async()=>{const f=files[+e.dataset.d];e.style.opacity=.6;
-      try{const txt=await driveText(f);CAP={name:f.name,text:txt,items:null,driveId:f.id};closeModal();S.tab='capture';render();toast('Loaded - now open in Claude to extract')}catch(er){toast(er.message)}});
+      try{const txt=await driveText(f);CAP=capNew({name:f.name,text:txt,driveId:f.id});closeModal();S.tab='capture';render();toast('Loaded - now open in Claude to extract')}catch(er){toast(er.message)}});
   }catch(e){modal('<p>'+esc(e.message)+'</p><button class="g" onclick="closeModal()">Close</button>')}
 }
 
@@ -547,63 +548,188 @@ async function renderLibrary(m){
   m.querySelectorAll('[data-l]').forEach(e=>e.onclick=()=>{S.lib=e.dataset.l;render()});
   try{
     const dir=S.lib==='notes'?'notes':'outputs',files=await listDir(dir);
-    m.querySelector('p.mute').outerHTML=files.length?files.map(f=>'<div class="card" data-p="'+dir+'/'+esc(f)+'" style="cursor:pointer;display:flex;align-items:center;gap:10px"><b style="flex:1">'+esc(f.replace(/\.md$/,'').replace(/^(\d{4}-\d{2}-\d{2})_/,'$1 · ').replace(/-/g,' ').replace(/(\d{4}) (\d{2}) (\d{2})/,'$1-$2-$3'))+'</b><button class="g s" data-del style="color:var(--bad);flex:none;margin:0">Delete</button></div>').join(''):'<p class="mute">Nothing here yet.</p>';
+    const card=f=>{const p=dir+'/'+f,mt=(S.d.meetings||[]).find(x=>x.path===p);
+      const title=mt?mt.title:f.replace(/\.md$/,'').replace(/^(\d{4}-\d{2}-\d{2})_/,'$1 · ').replace(/-/g,' ').replace(/(\d{4}) (\d{2}) (\d{2})/,'$1-$2-$3');
+      const tags=mt?[mt.date?fyr(mt.date):'',mt.lead,mt.track?tn(mt.track):'',mt.counts&&mt.counts.decisions?mt.counts.decisions+' decision'+(mt.counts.decisions>1?'s':''):''].filter(Boolean).map(esc).join(' · '):'';
+      return '<div class="card" data-p="'+esc(p)+'" style="cursor:pointer;display:flex;align-items:center;gap:10px"><div style="flex:1"><b>'+esc(title)+'</b>'+(tags?'<div class="sub">'+tags+'</div>':'')+'</div><button class="g s" data-del style="color:var(--bad);flex:none;margin:0">Delete</button></div>'};
+    m.querySelector('p.mute').outerHTML=files.length?files.map(card).join(''):'<p class="mute">Nothing here yet.</p>';
     m.querySelectorAll('[data-p]').forEach(e=>e.onclick=ev=>{if(ev.target.closest('[data-del]'))return;viewFile(e.dataset.p)});
-    m.querySelectorAll('[data-del]').forEach(b=>{let armed=false;b.onclick=ev=>{ev.stopPropagation();const card=b.closest('[data-p]');
+    m.querySelectorAll('[data-del]').forEach(b=>{let armed=false;b.onclick=ev=>{ev.stopPropagation();const c=b.closest('[data-p]');
       if(!armed){armed=true;b.textContent='Tap again to delete';setTimeout(()=>{armed=false;if(b.isConnected)b.textContent='Delete'},4000);return}
-      once(b,async()=>{try{await delFile(card.dataset.p);card.remove();toast('Deleted')}catch(e){toast(e.message)}})}});
+      once(b,async()=>{try{await delFile(c.dataset.p);c.remove();toast('Deleted')}catch(e){toast(e.message)}})}});
   }catch(e){m.querySelector('p.mute').textContent=e.message}
 }
-let CAP={name:'',text:'',items:null};
-function renderCapture(m){
-  if(CAP.items)return renderReview(m);
-  m.innerHTML='<p class="mute">Paste meeting notes, a WhatsApp chat, or anything with decisions in it. Claude pulls out tasks, owners and dates. You review, then push.</p>'+
-   '<label>What is this? (e.g. Wooden Street internal call)</label><input id="cp_n" value="'+esc(CAP.name)+'">'+
-   '<label>Notes / chat</label><textarea id="cp_t" style="min-height:180px">'+esc(CAP.text)+'</textarea>'+
-   '<input type="file" id="cp_f" accept=".txt,.md,.csv,text/plain" style="margin-bottom:6px">'+
-   '<button class="g" id="cp_dr">Import from Google Drive</button><button class="g" id="cp_gr">Pull latest from Granola</button><br>'+
-   '<button class="b" id="cp_go">1. Open in Claude to extract</button>'+
-   '<h2>2. Paste Claude\'s JSON reply</h2><textarea id="cp_j" placeholder="[ { &quot;type&quot;: &quot;task&quot;, ... } ]"></textarea><button class="b" id="cp_pv">Preview items</button>';
-  $('#cp_f').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{$('#cp_t').value=r.result;if(!$('#cp_n').value)$('#cp_n').value=f.name.replace(/\.[^.]+$/,'')};r.readAsText(f)};
-  const keep=()=>{CAP.name=$('#cp_n').value;CAP.text=$('#cp_t').value};
-  $('#cp_dr').onclick=()=>driveModal();
-  $('#cp_gr').onclick=()=>{keep();openClaude(extractPrompt('',CAP.name))};
-  $('#cp_go').onclick=()=>{keep();if(!CAP.text.trim())return toast('Paste the notes first');openClaude(extractPrompt(CAP.text,CAP.name))};
-  $('#cp_pv').onclick=()=>{keep();const raw=$('#cp_j').value,a=raw.indexOf('['),b=raw.lastIndexOf(']');
-    try{if(a<0||b<a)throw 0;CAP.items=JSON.parse(raw.slice(a,b+1)).map(i=>({on:i.type!=='event',...i,template:evTypes().includes(i.template)?i.template:''}));render()}catch(e){toast('Could not read that JSON - copy Claude\'s whole reply')}};
+
+/* ============ Capture: transcript -> Claude -> one reply -> review item by item -> push ============ */
+const capNew=o=>Object.assign({name:'',text:'',items:null,step:0,note:'',meta:{},lead:'',track:'',date:'',driveId:undefined},o||{});
+let CAP=capNew();
+const IT_TYPES=[['task','Task'],['event','Event'],['decision','Decision'],['leadupdate','Update to an existing lead'],['lead','New lead'],['reading','Reading']];
+const IT_COL={task:'#1b7f88',event:'#6b5bd2',decision:'#c2410c',leadupdate:'#1f9d55',lead:'#f2a10c',reading:'#5d6a72'};
+const normName=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+const findLead=n=>n?(S.d.pipeline||[]).find(p=>normName(p.company)===normName(n)):null;
+const leadNames=()=>(S.d.pipeline||[]).map(p=>p.company).filter(Boolean);
+const mdate=d=>{const x=pd(d)||today();return x.getDate()+'-'+MONS[x.getMonth()]+'-'+x.getFullYear()};
+
+function capPrompt(name,text){
+  const c=S.d.config,td=today(),L=[];
+  L.push('You are the meeting-capture assistant for Inflekt OS (Inflekt Growth, a 3-partner growth consultancy). Today is '+ymd(td)+' ('+td.toLocaleDateString('en-GB',{weekday:'long'})+').');
+  L.push('Meeting: '+(name||'(untitled)')+(CAP.date?' on '+CAP.date:'')+(CAP.lead?'. Related lead/client: '+CAP.lead:'')+(CAP.track?'. Track: '+CAP.track:''));
+  L.push('Team: '+(c.team||[]).join(', '));
+  L.push('Tracks: '+(c.tracks||[]).map(t=>t.name).join(' | '));
+  L.push('Existing leads/clients: '+(leadNames().join(' | ')||'(none)'));
+  L.push('Event types: '+evTypes().join(' | '));
+  L.push('');
+  L.push('Read the meeting transcript and reply with ONE code block (```text ... ```) and nothing outside it. Inside, exactly these three parts in this order:');
+  L.push('===META===\n{"title":"short meeting title","date":"YYYY-MM-DD","lead":"exact name from the existing leads list, or empty","track":"exact track name, or empty"}');
+  L.push('===NOTE===\nA clean meeting note in markdown, max ~350 words: "## Summary" (3-5 lines), "## Key points" (bullets: facts, numbers, stakeholders, objections, what they need, commitments), "## Open questions & risks". Do not paste the transcript. Do not use triple backticks inside the note.');
+  L.push('===ITEMS===\nA valid JSON array. Each item: {"type":"task|event|decision|leadupdate|lead|reading","text":"...","owner":"","due":"YYYY-MM-DD or empty","track":"","priority":"P1|P2|P3","note":"ONE short line of context from the meeting","detail":"","template":"","lead":"","status":"","waitingOn":""}');
+  L.push('Rules for items:\n- task: text = short imperative headline; note = one line saying why / what was said in the meeting; owner only if explicit or unambiguous (one of the team); if we are waiting on someone outside the team, put their name in waitingOn and keep owner = our team member who follows up.\n- event: a dated meeting/call/deadline; text = name; due = its date; template = one of the event types (call or meeting with a prospect/client = Exploratory call; internal partner discussion = Internal discussion; else empty).\n- decision: something agreed; text = the decision; note = the reason; lead = existing lead it concerns, if any.\n- leadupdate: news about an EXISTING lead; lead = exact name from the list; text = one-line milestone to log (what happened); status = Active, Warm, Completed or Dropped only if clearly changed, else empty; detail = next step.\n- lead: a NEW company to approach that is not in the list; text = company; detail = context.\n- reading: an article or link to read.\n- Resolve relative dates against today. Never invent anything. Skip chit-chat. Be complete: every action, decision, date and lead update in the transcript.');
+  L.push('');
+  return L.join('\n');
 }
-function renderReview(m){
-  const team=S.d.config.team||[];
-  m.innerHTML='<h2 style="margin-top:0">Review '+CAP.items.length+' items</h2>'+CAP.items.map((it,i)=>
-   '<div class="card'+(it.type==='event'?' rvev':'')+'"><div class="row"><label style="flex:0 0 auto"><input type="checkbox" data-i="'+i+'" data-k="on" '+(it.on?'checked':'')+' style="width:20px;margin:0"> '+(it.type==='event'?'<b>confirm event</b>':'push')+'</label><select data-i="'+i+'" data-k="type">'+['task','decision','event','lead','reading'].map(t=>'<option'+(t===it.type?' selected':'')+'>'+t+'</option>').join('')+'</select></div>'+
-   '<input data-i="'+i+'" data-k="text" value="'+esc(it.text)+'">'+(it.type==='event'?'<label>Event type (auto-tagged) - tick confirm to add it to the Tasks tab and create its prep tasks</label><select data-i="'+i+'" data-k="template">'+[['','Other - no prep tasks'],...evTypes().map(t=>[t,t])].map(o=>'<option value="'+esc(o[0])+'"'+(o[0]===(it.template||'')?' selected':'')+'>'+esc(o[1])+'</option>').join('')+'</select>':'')+
-   '<div class="row"><select data-i="'+i+'" data-k="owner">'+['',...team].map(o=>'<option'+(o===it.owner?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select><input type="date" data-i="'+i+'" data-k="due" value="'+esc(it.due||'')+'"><select data-i="'+i+'" data-k="priority">'+['P1','P2','P3'].map(o=>'<option'+(o===(it.priority||'P2')?' selected':'')+'>'+o+'</option>').join('')+'</select></div>'+(it.detail?'<small class="mute">'+esc(it.detail)+'</small>':'')+'</div>').join('')+
-   '<label><input type="checkbox" id="rv_n" checked style="width:auto"> also save the raw notes to the library</label><br>'+
-   '<button class="b" id="rv_ok">Push selected to Inflekt OS</button><button class="g" id="rv_x">Back</button>';
-  m.querySelectorAll('[data-i]').forEach(e=>e.onchange=()=>{const it=CAP.items[+e.dataset.i];it[e.dataset.k]=e.type==='checkbox'?e.checked:e.value;if(e.dataset.k==='type'){if(it.type==='event'&&!it._ev){it._ev=1;it.on=false}render()}});
-  $('#rv_x').onclick=()=>{CAP.items=null;render()};
-  $('#rv_ok').onclick=pushItems;
+function openCapture(){
+  const name=CAP.name,text=CAP.text,head=capPrompt(name,text);
+  const full=head+'TRANSCRIPT:\n---\n'+text,url='https://claude.ai/new?q='+encodeURIComponent(full);
+  if(url.length<7000){window.open(url,'_blank');CAP.sent='inline';return}
+  // too long for a link: send only the short instructions, put the transcript on the clipboard to paste
+  copy(text);window.open('https://claude.ai/new?q='+encodeURIComponent(head+'TRANSCRIPT: (paste it right below this line, then send)\n---\n'),'_blank');
+  CAP.sent='paste';
+}
+function renderCapture(m){
+  if(CAP.items)return CAP.step>=CAP.items.length?renderSummary(m):renderCard(m);
+  const leads=['',...leadNames()],tracks=[['',''],...(S.d.config.tracks||[]).map(x=>[x.name,tn(x.name)])];
+  const opt=(arr,v)=>arr.map(o=>{const a=Array.isArray(o)?o[0]:o,t=Array.isArray(o)?o[1]:o;return '<option value="'+esc(a)+'"'+(a===v?' selected':'')+'>'+esc(t||'-')+'</option>'}).join('');
+  if(!CAP.date)CAP.date=ymd(today());
+  m.innerHTML='<h2 style="margin-top:0">1. Meeting transcript</h2>'+
+   '<label>Meeting name (e.g. Wooden Street intro call)</label><input id="cp_n" value="'+esc(CAP.name)+'">'+
+   '<div class="row"><div><label>Date</label><input type="date" id="cp_d" value="'+esc(CAP.date)+'"></div><div><label>Lead / client</label><select id="cp_l">'+opt(leads,CAP.lead)+'</select></div></div>'+
+   '<label>Track (optional)</label><select id="cp_k">'+opt(tracks,CAP.track)+'</select>'+
+   '<label>Paste the transcript or notes (any length)</label><textarea id="cp_t" style="min-height:160px">'+esc(CAP.text)+'</textarea>'+
+   '<input type="file" id="cp_f" accept=".txt,.md,.csv,.vtt,.srt,text/plain" style="margin-bottom:6px"><button class="g" id="cp_dr">Import from Google Drive</button><br>'+
+   '<button class="b big" id="cp_go">Open in Claude to extract</button>'+
+   (CAP.sent==='paste'?'<div class="card rvev"><b>Transcript copied.</b> In the Claude tab: click at the end of the message box, paste (Ctrl/Cmd+V) and send. <button class="g s" id="cp_cp">Copy transcript again</button></div>':'')+
+   (CAP.sent==='inline'?'<p class="mute">Claude opened with the transcript included. Just send it.</p>':'')+
+   '<h2>2. Paste Claude\'s reply</h2><p class="mute" style="margin-top:-4px">Tap the copy icon on Claude\'s code block, then paste here. One paste, nothing else.</p><textarea id="cp_j" style="min-height:110px" placeholder="===META=== ... ===NOTE=== ... ===ITEMS=== ..."></textarea><button class="b big" id="cp_pv">Review item by item</button>';
+  const keep=()=>{CAP.name=$('#cp_n').value;CAP.text=$('#cp_t').value;CAP.date=$('#cp_d').value;CAP.lead=$('#cp_l').value;CAP.track=$('#cp_k').value};
+  $('#cp_f').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{$('#cp_t').value=r.result;if(!$('#cp_n').value)$('#cp_n').value=f.name.replace(/\.[^.]+$/,'')};r.readAsText(f)};
+  $('#cp_dr').onclick=()=>{keep();driveModal()};
+  $('#cp_go').onclick=()=>{keep();if(!CAP.text.trim())return toast('Paste the transcript first');openCapture();render()};
+  if($('#cp_cp'))$('#cp_cp').onclick=()=>{copy(CAP.text);toast('Transcript copied')};
+  $('#cp_pv').onclick=()=>{keep();try{capLoad($('#cp_j').value);render()}catch(e){toast(e.message||'Could not read that reply - copy Claude\'s whole code block')}};
+}
+/** turn Claude's reply into CAP.items / note / meta; every value is checked against the app's own lists */
+function capLoad(raw){
+  const parts=raw.split(/===(META|NOTE|ITEMS)===/),sec={};
+  for(let i=1;i<parts.length;i+=2)sec[parts[i]]=(parts[i+1]||'');
+  const clean=s=>String(s||'').replace(/^\s*```[a-z]*\s*$/gm,'').trim();
+  let items,meta={};
+  const js=sec.ITEMS||raw,a=js.indexOf('['),b=js.lastIndexOf(']');
+  if(a<0||b<a)throw new Error('No item list found in that reply');
+  try{items=JSON.parse(js.slice(a,b+1))}catch(e){throw new Error('The item list is not valid JSON - ask Claude to resend it')}
+  if(sec.META){const x=sec.META.indexOf('{'),y=sec.META.lastIndexOf('}');try{meta=JSON.parse(sec.META.slice(x,y+1))}catch(e){}}
+  const c=S.d.config,team=c.team||[],trk=(c.tracks||[]).map(t=>t.name);
+  const fixTrack=v=>{if(!v)return '';const n=normName(v);return trk.find(t=>normName(t)===n||normName(tn(t))===n)||''};
+  const fixOwner=v=>team.find(t=>normName(t)===normName(v))||'';
+  CAP.items=items.filter(i=>i&&String(i.text||i.lead||'').trim()).map(i=>{
+    const it={type:IT_TYPES.some(t=>t[0]===i.type)?i.type:'task',text:String(i.text||'').trim(),owner:fixOwner(i.owner),due:/^\d{4}-\d{2}-\d{2}$/.test(i.due||'')?i.due:'',track:fixTrack(i.track),
+      priority:['P1','P2','P3'].includes(i.priority)?i.priority:'P2',note:String(i.note||'').trim(),detail:String(i.detail||'').trim(),template:evTypes().includes(i.template)?i.template:'',
+      lead:(findLead(i.lead)||{}).company||'',status:LST.includes(i.status)?i.status:'',waitingOn:String(i.waitingOn||'').trim(),res:null};
+    if(it.type==='leadupdate'&&!it.lead){it.type='lead';it.text=String(i.lead||i.text||'').trim();it.detail=it.detail||String(i.text||'').trim()}
+    return it});
+  if(!CAP.items.length)throw new Error('Claude found nothing to capture');
+  CAP.note=clean(sec.NOTE);CAP.step=0;
+  CAP.meta=meta;if(!CAP.name&&meta.title)CAP.name=String(meta.title);
+  if(!CAP.lead&&findLead(meta.lead))CAP.lead=findLead(meta.lead).company;
+  if(!CAP.track&&fixTrack(meta.track))CAP.track=fixTrack(meta.track);
+  if(meta.date&&/^\d{4}-\d{2}-\d{2}$/.test(meta.date)&&!CAP.dateSet)CAP.date=meta.date;
+}
+function capBack(){if(CAP.back2sum)CAP.step=CAP.items.length;else if(CAP.step>0)CAP.step--;else CAP.items=null;render()}
+const fld=(i,k,label,val,kind,opts)=>{const at='data-i="'+i+'" data-k="'+k+'"';
+  if(kind==='select')return '<label>'+label+'</label><select '+at+'>'+opts.map(o=>{const a=Array.isArray(o)?o[0]:o,t=Array.isArray(o)?o[1]:o;return '<option value="'+esc(a)+'"'+(a===(val||'')?' selected':'')+'>'+esc(t||'-')+'</option>'}).join('')+'</select>';
+  if(kind==='area')return '<label>'+label+'</label><textarea '+at+' style="min-height:64px">'+esc(val||'')+'</textarea>';
+  return '<label>'+label+'</label><input '+at+' type="'+(kind||'text')+'" value="'+esc(val||'')+'">'};
+function cardFields(it,i){
+  const c=S.d.config,team=['',...(c.team||[])],tracks=[['',''],...(c.tracks||[]).map(x=>[x.name,tn(x.name)])],leads=['',...leadNames()];
+  if(it.type==='task')return fld(i,'text','Task',it.text)+fld(i,'track','Track',it.track,'select',tracks)+fld(i,'due','Due',it.due,'date')+fld(i,'owner','Owner',it.owner,'select',team)+fld(i,'note','Context from the meeting (one line)',it.note)+fld(i,'priority','Priority',it.priority,'select',['P1','P2','P3'])+fld(i,'waitingOn','Waiting on (only if the ball is with someone outside the team)',it.waitingOn);
+  if(it.type==='event')return fld(i,'text','Event / meeting',it.text)+fld(i,'due','Date',it.due,'date')+fld(i,'template','Type (decides which prep tasks are created)',it.template,'select',[['','Other - no prep tasks'],...evTypes().map(t=>[t,t])])+fld(i,'owner','Owner',it.owner,'select',team)+fld(i,'track','Track',it.track,'select',tracks)+fld(i,'detail','Notes',it.detail);
+  if(it.type==='decision')return fld(i,'text','Decision',it.text)+fld(i,'note','Why / context',it.note)+fld(i,'lead','Related lead',it.lead,'select',leads);
+  if(it.type==='leadupdate')return fld(i,'lead','Lead / client',it.lead,'select',leads)+fld(i,'text','What happened (added as a dated milestone)',it.text)+fld(i,'status','Status after this',it.status,'select',[['','Keep current status'],...LST])+fld(i,'detail','Next step',it.detail);
+  if(it.type==='lead')return fld(i,'text','Company',it.text)+fld(i,'detail','Context / next step',it.detail)+fld(i,'owner','Owner',it.owner,'select',team);
+  return fld(i,'text','Reading',it.text)+fld(i,'detail','Link / why',it.detail);
+}
+function renderCard(m){
+  const i=CAP.step,n=CAP.items.length,it=CAP.items[i];
+  m.innerHTML='<div class="mute" style="font-weight:600">Item '+(i+1)+' of '+n+'</div><div style="height:6px;background:var(--line);border-radius:9px;margin:6px 0 12px"><div style="height:6px;border-radius:9px;background:var(--brand);width:'+Math.round(i*100/n)+'%"></div></div>'+
+   '<div class="card" style="border-left:6px solid '+IT_COL[it.type]+'"><label>Type</label><select id="ty">'+IT_TYPES.map(t=>'<option value="'+t[0]+'"'+(t[0]===it.type?' selected':'')+'>'+t[1]+'</option>').join('')+'</select>'+cardFields(it,i)+
+   (it.res?'<p class="mute">Earlier you chose: <b>'+(it.res==='ok'?'Confirm':'Skip')+'</b></p>':'')+
+   '<div class="row"><button class="g" id="rv_sk" style="margin:4px 0;padding:14px">Skip</button><button class="b" id="rv_ok" style="margin:4px 0;width:100%">Confirm</button></div></div>'+
+   '<button class="g" id="rv_bk">← '+(i?'Previous item':'Back to transcript')+'</button>';
+  m.querySelectorAll('[data-i]').forEach(e=>{const h=()=>{it[e.dataset.k]=e.value};e.oninput=h;e.onchange=h});
+  $('#ty').onchange=e=>{it.type=e.target.value;render()};
+  $('#rv_bk').onclick=capBack;
+  $('#rv_sk').onclick=()=>{it.res='skip';CAP.step=CAP.back2sum?CAP.items.length:CAP.step+1;render()};
+  $('#rv_ok').onclick=()=>{
+    if(!String(it.type==='leadupdate'?it.lead:it.text).trim())return toast(it.type==='leadupdate'?'Pick the lead':'Text is needed');
+    if(it.type==='event'&&!it.due)return toast('Pick the event date');
+    if(it.type==='leadupdate'&&!it.text.trim())return toast('Say what happened');
+    it.res='ok';CAP.step=CAP.back2sum?CAP.items.length:CAP.step+1;render()};
+}
+function renderSummary(m){
+  CAP.back2sum=false;
+  const ok=CAP.items.filter(i=>i.res==='ok'),cnt=t=>ok.filter(i=>i.type===t).length;
+  const leads=['',...leadNames()],tracks=[['',''],...(S.d.config.tracks||[]).map(x=>[x.name,tn(x.name)])];
+  const sel=(id,arr,v)=>'<select id="'+id+'">'+arr.map(o=>{const a=Array.isArray(o)?o[0]:o,t=Array.isArray(o)?o[1]:o;return '<option value="'+esc(a)+'"'+(a===v?' selected':'')+'>'+esc(t||'-')+'</option>'}).join('')+'</select>';
+  m.innerHTML='<h2 style="margin-top:0">All items reviewed</h2><p><b>'+ok.length+' confirmed</b>, '+(CAP.items.length-ok.length)+' skipped</p>'+
+   '<div class="card">'+CAP.items.map((it,i)=>'<div data-go="'+i+'" style="display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line);cursor:pointer"><span class="pill" style="background:'+(it.res==='ok'?IT_COL[it.type]:'#8b96a1')+'">'+(IT_TYPES.find(t=>t[0]===it.type)||[0,it.type])[1].split(' ')[0]+'</span><span style="flex:1;'+(it.res==='ok'?'':'text-decoration:line-through;color:var(--mute)')+'">'+esc(it.type==='leadupdate'?it.lead+': '+it.text:it.text)+'</span></div>').join('')+'<p class="mute" style="margin:8px 0 0">Tap an item to change it.</p></div>'+
+   '<h3>Meeting note for the Library</h3><label>Title</label><input id="sm_t" value="'+esc(CAP.name)+'"><div class="row"><div><label>Lead / client</label>'+sel('sm_l',leads,CAP.lead)+'</div><div><label>Track</label>'+sel('sm_k',tracks,CAP.track)+'</div></div>'+
+   (CAP.note?'<label><input type="checkbox" id="sm_n" checked style="width:auto"> Save the summary, key points and decisions to Library > Meeting notes</label>':'<p class="mute">Claude sent no note, so only the confirmed items are saved.</p>')+
+   '<p class="mute">The raw transcript is not stored.</p><button class="b big" id="rv_push">Push '+ok.length+' item'+(ok.length===1?'':'s')+(CAP.note?' + note':'')+'</button><button class="g" id="rv_bk">← Previous item</button>';
+  m.querySelectorAll('[data-go]').forEach(e=>e.onclick=()=>{CAP.back2sum=true;CAP.step=+e.dataset.go;render()});
+  $('#rv_bk').onclick=()=>{CAP.back2sum=false;CAP.step=CAP.items.length-1;render()};
+  $('#rv_push').onclick=pushItems;
+}
+function noteMd(title,date,lead,track,ok,tasks,events){
+  const by=t=>ok.filter(i=>i.type===t),L=['# '+title,'','_'+date+' · captured by '+S.conn.me+(lead?' · Lead: '+lead:'')+(track?' · Track: '+tn(track):'')+'_',''];
+  if(CAP.note)L.push(CAP.note,'');
+  if(by('decision').length)L.push('## Decisions',...by('decision').map(i=>'- **'+i.text+'**'+(i.note?' - '+i.note:'')),'');
+  if(tasks.length)L.push('## Actions',...tasks.map(t=>'- '+t.title+' ('+(t.waitingOn?'waiting on '+t.waitingOn+', follow-up ':'')+(t.owner||'unassigned')+(t.due?', due '+t.due:'')+')'+((t.log[0]||{}).t?' - '+t.log[0].t:'')),'');
+  if(events.length)L.push('## Events',...events.map(e=>'- '+e.date+': '+e.event+(e.template?' ['+e.template+']':'')),'');
+  if(by('leadupdate').length)L.push('## Pipeline updates',...by('leadupdate').map(i=>'- **'+i.lead+'**: '+i.text+(i.status?' (now '+i.status+')':'')+(i.detail?'. Next: '+i.detail:'')),'');
+  if(by('lead').length)L.push('## New leads',...by('lead').map(i=>'- '+i.text+(i.detail?' - '+i.detail:'')),'');
+  if(by('reading').length)L.push('## To read',...by('reading').map(i=>'- '+i.text+(i.detail?' - '+i.detail:'')),'');
+  return L.join('\n');
 }
 let pushing=false;
 function pushItems(){
   if(pushing||!CAP.items)return;pushing=true;
-  const name=CAP.name,text=CAP.text,driveId=CAP.driveId,keepNotes=$('#rv_n')?$('#rv_n').checked:true;
-  const src='Meeting: '+(name||'notes'),sel=CAP.items.filter(i=>i.on&&String(i.text||'').trim());
-  const tasks=sel.filter(i=>i.type==='task').map(i=>{const t=mk({title:i.text,owner:i.owner,due:i.due,pri:i.priority,track:i.track,source:src,notes:i.detail});if(!t.owner)t.owner=autoOwner(t);return t});
-  const events=sel.filter(i=>i.type==='event').map(i=>({id:uid(),date:i.due,event:i.text,template:i.template||'',owner:i.owner||S.conn.me,track:i.track||'',notes:i.detail||''})).filter(e=>e.date&&!(S.d.events||[]).some(x=>x.date===e.date&&String(x.event).toLowerCase()===String(e.event).toLowerCase()));
-  const leads=sel.filter(i=>i.type==='lead').map(i=>({id:uid(),company:i.text,status:'Warm',stage:'Lead',firstContact:ymd(today()),owner:i.owner||'',retainer:'',prob:'',last:'',next:i.detail||'',nextDate:i.due||''}));
-  const decs=sel.filter(i=>i.type==='decision'||i.type==='reading').map(i=>({id:uid(),date:ymd(today()),type:i.type,text:i.text,owner:i.owner||'',source:src,detail:i.detail||''}));
+  const title=($('#sm_t')?$('#sm_t').value:CAP.name).trim()||'Meeting',lead=$('#sm_l')?$('#sm_l').value:CAP.lead,track=$('#sm_k')?$('#sm_k').value:CAP.track,saveNote=!!CAP.note&&($('#sm_n')?$('#sm_n').checked:true);
+  const date=CAP.date||ymd(today()),me=S.conn.me,src='Meeting: '+title,ok=CAP.items.filter(i=>i.res==='ok'),driveId=CAP.driveId,td=ymd(today());
+  const path='notes/'+date+'_'+slug(title)+'.md';
+  const tasks=ok.filter(i=>i.type==='task').map(i=>{const t=mk({title:i.text,owner:i.owner,due:i.due,pri:i.priority,track:i.track||track,source:src});if(!t.owner)t.owner=autoOwner(t);
+    if(i.note)t.log.push({at:td,by:me,k:'note',t:i.note});if(i.waitingOn){t.status='waiting';t.waitingOn=i.waitingOn;t.waitSince=td}return t});
+  const events=ok.filter(i=>i.type==='event').map(i=>({id:uid(),date:i.due,event:i.text,template:i.template||'',owner:i.owner||me,track:i.track||track,notes:i.detail||i.note||'',meeting:path}))
+    .filter(e=>e.date&&!(S.d.events||[]).some(x=>x.date===e.date&&String(x.event).toLowerCase()===String(e.event).toLowerCase()));
+  const decs=ok.filter(i=>i.type==='decision'||i.type==='reading').map(i=>({id:uid(),date:td,type:i.type,text:i.text,owner:i.owner||'',source:src,detail:i.note||i.detail||'',lead:i.lead||(i.type==='decision'?lead:'')||'',meeting:path}));
+  const updates=ok.filter(i=>i.type==='leadupdate'),newLeads=ok.filter(i=>i.type==='lead').map(i=>({id:uid(),company:i.text,status:'Warm',stage:'Lead',firstContact:td,onboarded:'',milestones:mdate(td)+': Added from "'+title+'"'+(i.detail?' - '+i.detail:''),contact:'',owner:i.owner||'',next:i.detail||'',last:td,nextDate:'',retainer:'',prob:''}));
+  const entry={id:path,path,title,date,lead:lead||'',track:track||'',by:me,counts:{tasks:tasks.length,events:events.length,decisions:decs.filter(d=>d.type==='decision').length,updates:updates.length}};
+  const md=saveNote||ok.length?noteMd(title,date,lead,track,ok,tasks,events):'';
+  const summary=[tasks.length&&tasks.length+' task'+(tasks.length>1?'s':''),events.length&&events.length+' event'+(events.length>1?'s':''),updates.length&&updates.length+' lead update'+(updates.length>1?'s':''),newLeads.length&&newLeads.length+' new lead'+(newLeads.length>1?'s':''),decs.length&&decs.length+' decision/reading',saveNote&&'meeting note'].filter(Boolean).join(', ')||'nothing';
   // leave the review screen immediately, so there is no button left to press twice
-  CAP={name:'',text:'',items:null};S.tab='tasks';S.filter='all';S.view='open';render();
+  CAP=capNew();S.tab='tasks';S.filter='all';S.view='open';render();
   (async()=>{
     try{
-      if(tasks.length)await optimistic('tasks',l=>addOnce(l,tasks),'meeting tasks: '+name);
-      if(events.length){await optimistic('events',l=>addOnce(l,events),'events from '+name);await materialize()}
-      if(leads.length)await optimistic('pipeline',l=>addOnce(l,leads),'leads from '+name);
-      if(decs.length)await optimistic('decisions',l=>addOnce(l,decs),'decisions from '+name);
-      if(driveId){const rec={id:driveId,name,by:S.conn.me,at:ymd(today())};await optimistic('imported',l=>l.some(x=>x.id===rec.id)?false:l.concat(rec),'imported '+name)}
-      if(keepNotes&&text)await saveText('notes/'+ymd(today())+'_'+slug(name||'notes')+'.md','# '+(name||'Notes')+'\n\n_'+ymd(today())+' · pushed by '+S.conn.me+'_\n\n'+text,'notes: '+name);
-      toast('Pushed '+sel.length+' items');
+      if(saveNote)await saveText(path,md,'meeting note: '+title);
+      if(saveNote)await optimistic('meetings',l=>l.filter(x=>x.id!==entry.id).concat(entry),'meeting index');
+      if(tasks.length)await optimistic('tasks',l=>addOnce(l,tasks),'meeting tasks: '+title);
+      if(events.length){await optimistic('events',l=>addOnce(l,events),'events from '+title);await materialize()}
+      if(updates.length||newLeads.length)await optimistic('pipeline',l=>{
+        updates.forEach(u=>{const z=l.find(y=>normName(y.company)===normName(u.lead));if(!z)return;
+          const line=mdate(date)+': '+u.text;if(!String(z.milestones||'').includes(line))z.milestones=(z.milestones?z.milestones+'\n':'')+line;
+          z.last=td;if(u.status)z.status=u.status;if(u.detail)z.next=u.detail});
+        return addOnce(l,newLeads)},'pipeline from '+title);
+      if(decs.length)await optimistic('decisions',l=>addOnce(l,decs),'decisions from '+title);
+      if(driveId){const rec={id:driveId,name:title,by:me,at:td};await optimistic('imported',l=>l.some(x=>x.id===rec.id)?false:l.concat(rec),'imported '+title)}
+      toast('Pushed: '+summary);
     }catch(e){toast(e.message)}
     finally{pushing=false}
   })();
@@ -634,10 +760,13 @@ function renderPipe(m){
          +(x.next?'<div><span class="pk">Next</span> '+esc(x.next)+'</div>':'')
          +(x.milestones?'<div class="pk" style="margin-top:8px">Milestones</div><div class="pms">'+esc(x.milestones)+'</div>':'')
          +(x.contact?'<div class="pk" style="margin-top:8px">Contact</div><div class="pms">'+linkTel(x.contact)+'</div>':'')
+         +(()=>{const nm=normName(x.company),ms=(S.d.meetings||[]).filter(z=>normName(z.lead)===nm).sort((a,b)=>String(b.date).localeCompare(String(a.date))),ds=(S.d.decisions||[]).filter(z=>z.type==='decision'&&normName(z.lead)===nm).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+         return (ms.length?'<div class="pk" style="margin-top:8px">Meetings</div>'+ms.map(z=>'<div><a href="#" class="mlink" data-path="'+esc(z.path)+'" style="color:var(--brand);font-weight:600">'+esc(z.title)+'</a> <span class="mute">'+fyr(z.date)+'</span></div>').join(''):'')+(ds.length?'<div class="pk" style="margin-top:8px">Decisions</div>'+ds.map(z=>'<div class="pms">• '+esc(z.text)+' <span class="mute">('+fyr(z.date)+')</span></div>').join(''):'')})()
          +'<div><button class="g s" data-a="edit">Edit</button><button class="g s" data-a="touch">Touched today</button><button class="g s" data-a="brief">Prep research</button></div></div>':'')
        +'</div>'}).join('')||'<p class="mute" style="padding:14px">No leads here yet.</p>')+'</div>';
   $('#pa').onclick=()=>editLead(null);
   m.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{PF=b.dataset.f;render()});
+  m.querySelectorAll('.mlink').forEach(a=>a.onclick=e=>{e.preventDefault();viewFile(a.dataset.path)});
   m.querySelectorAll('.prow').forEach(r=>r.onclick=e=>{if(e.target.closest('[data-a],a'))return;PX=PX===r.dataset.id?null:r.dataset.id;render()});
   m.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{const id=b.closest('[data-id]').dataset.id,x=S.d.pipeline.find(y=>y.id===id);
     if(b.dataset.a==='touch')once(b,async()=>{await mutate('pipeline',l=>{const z=l.find(y=>y.id===id);if(!z)return false;z.last=ymd(today());return l},'touch');render()});
@@ -688,7 +817,7 @@ try{history.replaceState({s:0},'');history.pushState({s:1},'')}catch(e){}
 window.addEventListener('popstate',()=>{
   const rearm=()=>{try{history.pushState({s:1},'')}catch(e){}};
   if($('#modal').style.display==='flex'){closeModal();return rearm()}
-  if(S.tab==='capture'&&CAP.items){CAP.items=null;render();return rearm()}
+  if(S.tab==='capture'&&CAP.items){capBack();return rearm()}
   if(S.stack.length){S.tab=S.stack.pop();S.popping=true;render();return rearm()}
   if(S.tab!=='today'){S.tab='today';S.popping=true;render();return rearm()}
   const now=Date.now();
