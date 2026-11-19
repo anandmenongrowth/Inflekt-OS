@@ -557,11 +557,11 @@ let PF='all',PX=null;
 function renderPipe(m){
   const all=(S.d.pipeline||[]).slice();
   const n=all.length,cnt=s=>all.filter(x=>leadStatus(x)===s).length;
-  const open=cnt('Active')+cnt('Warm'),done=cnt('Completed'),drop=cnt('Dropped'),pc=v=>n?Math.round(v*100/n)+'%':'0%';
+  const open=cnt('Warm'),done=cnt('Active')+cnt('Completed'),drop=cnt('Dropped'),pc=v=>n?Math.round(v*100/n)+'%':'0%';
   const key=x=>x.firstContact||x.created||'';
   const p=all.filter(x=>PF==='all'||leadStatus(x)===PF).sort((a,b)=>key(b).localeCompare(key(a)));
   const tile=(l,v,sub,c)=>'<div class="ptile" style="border-top-color:'+c+'"><div class="pn">'+v+'</div><div class="pl">'+l+'</div>'+(sub?'<div class="ps">'+sub+'</div>':'')+'</div>';
-  m.innerHTML='<div class="ptiles">'+tile('Leads',n,'',  'var(--brand)')+tile('Open',open,'('+pc(open)+')','#f2a10c')+tile('Completed',done,'('+pc(done)+')','#4a90d9')+tile('Dropped',drop,'('+pc(drop)+')','#e5483a')+'</div>'
+  m.innerHTML='<div class="ptiles">'+tile('Leads',n,'',  'var(--brand)')+tile('Successful',done,'('+pc(done)+')','#1f9d55')+tile('Open',open,'('+pc(open)+')','#f2a10c')+tile('Dropped',drop,'('+pc(drop)+')','#e5483a')+'</div>'
    +'<div class="ctl"><div class="chips" style="flex:1;margin:0">'+[['all','All']].concat(LST.map(s=>[s,s])).map(([k,l])=>'<button class="chip'+(PF===k?' on':'')+'" data-f="'+k+'">'+l+'</button>').join('')+'</div><button class="b" id="pa">+ Add</button></div>'
    +'<div class="tbl"><div class="th pgrid"><span>Lead</span><span>First contact</span><span>Status</span></div>'
    +(p.map(x=>{const s=leadStatus(x),c=LCOL[s],open_=PX===x.id;
