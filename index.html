@@ -76,6 +76,13 @@ label{font-size:14px;font-weight:600;color:var(--mute)}
 .dd small{display:block;font-size:12px;font-weight:600;margin-top:2px}
 .dot.waiting{--c:#4a90d9}.dot.dropped{--c:#8b96a1}
 .note{font-size:14px;border-left:3px solid var(--brand);padding-left:9px;margin-top:6px}
+.ptiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0 0 12px}
+.ptile{background:var(--card);border:1px solid var(--line);border-top:4px solid var(--brand);border-radius:12px;padding:8px 6px;text-align:center}
+.pn{font-size:22px;font-weight:700;line-height:1.2}.pl{font-size:11.5px;font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.04em}.ps{font-size:12px;font-weight:600;color:var(--mute)}
+.pgrid{grid-template-columns:minmax(0,1fr) 70px 88px}
+.prow{cursor:pointer}.prow .pmain b{font-size:15.5px;font-weight:600}.pd{font-size:13px;color:var(--mute);font-weight:500}
+.pill{display:inline-block;color:#fff;font-size:12px;font-weight:700;border-radius:99px;padding:2px 10px}
+.pdet{grid-column:1/-1;margin-top:10px;font-size:14px}.pk{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mute);margin-right:6px}.pms{white-space:pre-line;font-size:14px}
 .badge{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:1px 7px;background:#fce8b2;color:#6b4a00;margin-left:8px;vertical-align:middle}
 .cnt.ok{background:var(--st-done)}
 </style>
@@ -87,10 +94,10 @@ label{font-size:14px;font-weight:600;color:var(--mute)}
 <div id="modal"><div class="in" id="mbody"></div></div>
 <div class="toast" id="toast"></div>
 
-<script src="core.js?v=4"></script>
+<script src="core.js?v=5"></script>
 <script>
 /* ============ tiny utils ============ */
-const coreOK=(typeof CORE_V!=='undefined'&&CORE_V>=4);
+const coreOK=(typeof CORE_V!=='undefined'&&CORE_V>=5);
 if(!coreOK&&!sessionStorage.getItem('rl')){sessionStorage.setItem('rl','1');(async()=>{try{for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister();for(const k of await caches.keys())await caches.delete(k)}catch(e){}location.reload()})()}
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -522,7 +529,7 @@ function pushItems(){
   const src='Meeting: '+(name||'notes'),sel=CAP.items.filter(i=>i.on&&String(i.text||'').trim());
   const tasks=sel.filter(i=>i.type==='task').map(i=>{const t=mk({title:i.text,owner:i.owner,due:i.due,pri:i.priority,track:i.track,source:src,notes:i.detail});if(!t.owner)t.owner=autoOwner(t);return t});
   const events=sel.filter(i=>i.type==='event').map(i=>({id:uid(),date:i.due,event:i.text,template:'',owner:i.owner||S.conn.me,track:i.track||'',notes:i.detail||''}));
-  const leads=sel.filter(i=>i.type==='lead').map(i=>({id:uid(),company:i.text,stage:'Lead',owner:i.owner||'',retainer:'',prob:'',last:'',next:i.detail||'',nextDate:i.due||''}));
+  const leads=sel.filter(i=>i.type==='lead').map(i=>({id:uid(),company:i.text,status:'Warm',stage:'Lead',firstContact:ymd(today()),owner:i.owner||'',retainer:'',prob:'',last:'',next:i.detail||'',nextDate:i.due||''}));
   const decs=sel.filter(i=>i.type==='decision'||i.type==='reading').map(i=>({id:uid(),date:ymd(today()),type:i.type,text:i.text,owner:i.owner||'',source:src,detail:i.detail||''}));
   // leave the review screen immediately, so there is no button left to press twice
   CAP={name:'',text:'',items:null};S.tab='tasks';S.filter='all';S.view='open';render();
@@ -539,20 +546,56 @@ function pushItems(){
     finally{pushing=false}
   })();
 }
+const LST=['Active','Warm','Completed','Dropped'];
+const LCOL={Active:'#1f9d55',Warm:'#f2a10c',Completed:'#4a90d9',Dropped:'#e5483a'};
+const LHINT={Active:'Active client',Warm:'Warm / awaiting',Completed:'Completed',Dropped:'Dropped'};
+const leadStatus=x=>x.status||(/won/i.test(x.stage||'')?'Completed':/lost/i.test(x.stage||'')?'Dropped':'Warm');
+const MONS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fyr=s=>{const d=pd(s);return d?d.getDate()+' '+MONS[d.getMonth()]+" '"+String(d.getFullYear()).slice(2):'–'};
+const linkTel=t=>esc(t).replace(/(\+?\d[\d ]{8,13}\d)/g,m=>'<a href="tel:'+m.replace(/\s/g,'')+'" style="color:var(--brand);font-weight:600">'+m+'</a>');
+let PF='all',PX=null;
 function renderPipe(m){
-  const p=(S.d.pipeline||[]).slice().sort((a,b)=>(pd(a.last)||0)-(pd(b.last)||0));
-  m.innerHTML='<button class="b" id="pa">+ Add lead</button>'+(p.map(x=>'<div class="card" data-id="'+x.id+'"><b>'+esc(x.company)+'</b> <span class="mute">'+esc(x.stage||'')+'</span><br><small>'+esc(x.owner||'no owner')+' · Rs'+esc(x.retainer||'?')+'L/mo · '+esc(x.prob||'?')+'% · last touch '+(pd(x.last)?fshort(pd(x.last)):'never')+'</small><br><small>Next: '+esc(x.next||'-')+'</small><div><button class="g s" data-a="touch">Touched today</button><button class="g s" data-a="edit">Edit</button><button class="g s" data-a="brief">Prep research</button></div></div>').join('')||'<p class="mute">No leads yet. Add targets or capture them from meetings.</p>');
+  const all=(S.d.pipeline||[]).slice();
+  const n=all.length,cnt=s=>all.filter(x=>leadStatus(x)===s).length;
+  const open=cnt('Active')+cnt('Warm'),done=cnt('Completed'),drop=cnt('Dropped'),pc=v=>n?Math.round(v*100/n)+'%':'0%';
+  const key=x=>x.firstContact||x.created||'';
+  const p=all.filter(x=>PF==='all'||leadStatus(x)===PF).sort((a,b)=>key(b).localeCompare(key(a)));
+  const tile=(l,v,sub,c)=>'<div class="ptile" style="border-top-color:'+c+'"><div class="pn">'+v+'</div><div class="pl">'+l+'</div>'+(sub?'<div class="ps">'+sub+'</div>':'')+'</div>';
+  m.innerHTML='<div class="ptiles">'+tile('Leads',n,'',  'var(--brand)')+tile('Open',open,'('+pc(open)+')','#f2a10c')+tile('Completed',done,'('+pc(done)+')','#4a90d9')+tile('Dropped',drop,'('+pc(drop)+')','#e5483a')+'</div>'
+   +'<div class="ctl"><div class="chips" style="flex:1;margin:0">'+[['all','All']].concat(LST.map(s=>[s,s])).map(([k,l])=>'<button class="chip'+(PF===k?' on':'')+'" data-f="'+k+'">'+l+'</button>').join('')+'</div><button class="b" id="pa">+ Add</button></div>'
+   +'<div class="tbl"><div class="th pgrid"><span>Lead</span><span>First contact</span><span>Status</span></div>'
+   +(p.map(x=>{const s=leadStatus(x),c=LCOL[s],open_=PX===x.id;
+      return '<div class="tr pgrid prow" data-id="'+x.id+'" style="border-left:5px solid '+c+'"><div class="pmain"><b>'+esc(x.company)+'</b>'+(x.stage?'<div class="sub">'+esc(x.stage)+'</div>':'')+'</div><div class="pd">'+fyr(x.firstContact||x.created)+'</div><div><span class="pill" style="background:'+c+'">'+s+'</span></div>'
+       +(open_?'<div class="pdet">'
+         +(x.onboarded?'<div><span class="pk">Onboarded</span> '+fyr(x.onboarded)+'</div>':'')
+         +(x.owner?'<div><span class="pk">Owner</span> '+esc(x.owner)+'</div>':'')
+         +(x.next?'<div><span class="pk">Next</span> '+esc(x.next)+'</div>':'')
+         +(x.milestones?'<div class="pk" style="margin-top:8px">Milestones</div><div class="pms">'+esc(x.milestones)+'</div>':'')
+         +(x.contact?'<div class="pk" style="margin-top:8px">Contact</div><div class="pms">'+linkTel(x.contact)+'</div>':'')
+         +'<div><button class="g s" data-a="edit">Edit</button><button class="g s" data-a="touch">Touched today</button><button class="g s" data-a="brief">Prep research</button></div></div>':'')
+       +'</div>'}).join('')||'<p class="mute" style="padding:14px">No leads here yet.</p>')+'</div>';
   $('#pa').onclick=()=>editLead(null);
-  m.querySelectorAll('[data-a]').forEach(b=>b.onclick=async()=>{const id=b.closest('[data-id]').dataset.id,x=S.d.pipeline.find(y=>y.id===id);
-    if(b.dataset.a==='touch'){await mutate('pipeline',l=>{const z=l.find(y=>y.id===id);if(!z)return false;z.last=ymd(today());return l},'touch');render()}
+  m.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{PF=b.dataset.f;render()});
+  m.querySelectorAll('.prow').forEach(r=>r.onclick=e=>{if(e.target.closest('[data-a],a'))return;PX=PX===r.dataset.id?null:r.dataset.id;render()});
+  m.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{const id=b.closest('[data-id]').dataset.id,x=S.d.pipeline.find(y=>y.id===id);
+    if(b.dataset.a==='touch')once(b,async()=>{await mutate('pipeline',l=>{const z=l.find(y=>y.id===id);if(!z)return false;z.last=ymd(today());return l},'touch');render()});
     else if(b.dataset.a==='edit')editLead(x);else claudeModal({title:'Research '+x.company,ai:{tpl:(S.d.config.prompts||[]).find(q=>/research/i.test(q.name))?.name,subject:x.company,context:''},status:'x',id:'none'});});
 }
 function editLead(x){
-  form(x?'Edit lead':'New lead',[{k:'company',label:'Company',val:x?.company},{k:'stage',label:'Stage',type:'select',opts:['Lead','Researching','Contacted','Call booked','Proposal','Won','Lost'],val:x?.stage||'Lead'},
-   {k:'owner',label:'Owner',type:'select',opts:['',...S.d.config.team],val:x?.owner||''},{k:'retainer',label:'Expected retainer (Rs lakh/mo)',val:x?.retainer},{k:'prob',label:'Probability %',val:x?.prob},{k:'next',label:'Next step',val:x?.next}],
-   async o=>{if(!o.company.trim())throw new Error('Company needed');
+  form(x?'Edit lead':'New lead',[{k:'company',label:'Lead / client',val:x?.company},
+   {k:'status',label:'Status',type:'select',opts:LST.map(s=>[s,LHINT[s]]),val:x?leadStatus(x):'Warm'},
+   {k:'stage',label:'Detail (e.g. Proposal sent, Mail sent)',val:x?.stage},
+   {k:'firstContact',label:'First contact',type:'date',val:x?.firstContact},{k:'onboarded',label:'Onboarded',type:'date',val:x?.onboarded},
+   {k:'milestones',label:'Milestones (one per line)',type:'area',val:x?.milestones},{k:'contact',label:'Contact',type:'area',val:x?.contact},
+   {k:'owner',label:'Owner',type:'select',opts:['',...S.d.config.team],val:x?.owner||''},{k:'next',label:'Next step',val:x?.next}],
+   async o=>{if(!o.company.trim())throw new Error('Name needed');
+    if(!x&&!o.firstContact)o.firstContact=ymd(today());
     const nl=x?null:{id:uid(),last:'',nextDate:'',...o};   // id fixed once, so a repeat can never add a second copy
     optimistic('pipeline',l=>{if(x){Object.assign(l.find(y=>y.id===x.id)||{},o);return l}return addOnce(l,[nl])},'pipeline');});
+  if(x){const d=document.createElement('button');d.className='g';d.style.cssText='color:var(--bad);float:right';d.textContent='Delete';let armed=false;
+    d.onclick=()=>{if(!armed){armed=true;d.textContent='Tap again to delete';return}
+      once(d,async()=>{closeModal();PX=null;await optimistic('pipeline',l=>l.filter(y=>y.id!==x.id),'delete lead');toast('Deleted '+x.company)})};
+    $('#f_ok').parentNode.appendChild(d);}
 }
 function renderSettings(m){
   const c=S.conn;
