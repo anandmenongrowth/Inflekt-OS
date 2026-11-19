@@ -90,6 +90,7 @@ label{font-size:14px;font-weight:600;color:var(--mute)}
 .evt .sub{margin-top:4px}.evt .acts{margin-top:4px}
 @media(prefers-color-scheme:dark){.evt{background:#241f3d;border-color:#3b3366}.evh h2{color:#a99cff}}
 .rvev{background:#f1eefc;border-left:6px solid #6b5bd2}@media(prefers-color-scheme:dark){.rvev{background:#241f3d}}
+#mbody textarea{min-height:84px}
 .badge{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:1px 7px;background:#fce8b2;color:#6b4a00;margin-left:8px;vertical-align:middle}
 .cnt.ok{background:var(--st-done)}
 </style>
@@ -468,20 +469,24 @@ function renderTasks(m){
 }
 function editTask(t){
   const c=S.d.config,tpls=['(none)',...(c.prompts||[]).map(p=>p.name)];
-  const fs=[{k:'title',label:'Task',val:t?.title},{k:'owner',label:'Owner',type:'select',opts:['',...c.team],val:t?.owner||''},{k:'due',label:'Due',type:'date',val:t?.due},
-   {k:'pri',label:'Priority',type:'select',opts:['P1','P2','P3'],val:t?.pri||'P2'},{k:'track',label:'Track',type:'select',opts:[['',''],...(c.tracks||[]).map(x=>[x.name,tn(x.name)])],val:t?.track||''}];
+  const fs=[{k:'title',label:'Task',val:t?.title},
+   {k:'track',label:'Track',type:'select',opts:[['',''],...(c.tracks||[]).map(x=>[x.name,tn(x.name)])],val:t?.track||''},
+   {k:'due',label:'Due',type:'date',val:t?.due},
+   {k:'owner',label:'Owner',type:'select',opts:['',...c.team],val:t?.owner||''},
+   {k:'note',label:'Add note (shows under the task for everyone)',type:'area'},
+   {k:'pri',label:'Priority',type:'select',opts:['P1','P2','P3'],val:t?.pri||'P2'}];
   if(!t){fs.push({k:'tpl',label:'Claude prompt template (optional)',type:'select',opts:tpls},{k:'subject',label:'Subject for the prompt (e.g. brand name)'},{k:'context',label:'Extra context (optional)',type:'area'})}
   form(t?'Edit task':'New task',fs,async o=>{
     if(!o.title.trim())throw new Error('Task text needed');
     if(t){optimistic('tasks',l=>{const x=l.find(y=>y.id===t.id);if(!x)return false;if((x.due||'')!==o.due){if(x.due){x.slips=(x.slips||0)+1;logAdd(x,'deadline','Deadline moved '+fshort(pd(x.due))+' to '+(o.due?fshort(pd(o.due)):'none'))}else if(o.due)logAdd(x,'deadline','Deadline set '+fshort(pd(o.due)))}
         if((x.owner||'')!==o.owner)logAdd(x,'owner','Owner: '+(x.owner||'none')+' to '+(o.owner||'none'));
+        if(o.note.trim())logAdd(x,'note',o.note.trim());
         Object.assign(x,{title:o.title,owner:o.owner,due:o.due,pri:o.pri,track:o.track});return l},'edit task')}
-    else{const n=mk({title:o.title,owner:o.owner,due:o.due,pri:o.pri,track:o.track,source:'Manual'});if(!n.owner)n.owner=autoOwner(n);
+    else{const n=mk({title:o.title,owner:o.owner,due:o.due,pri:o.pri,track:o.track,source:'Manual'});if(!n.owner)n.owner=autoOwner(n);if(o.note.trim())logAdd(n,'note',o.note.trim());
       if(o.tpl!=='(none)')n.ai={tpl:o.tpl,subject:o.subject,context:o.context};
       optimistic('tasks',l=>addOnce(l,[n]),'add task')}
     render();
   });
-  if(t){const nb=document.createElement('button');nb.className='g';nb.textContent='Add note';nb.onclick=()=>noteModal(t);const ok=$('#f_ok');ok.parentNode.insertBefore(nb,ok.nextSibling)}
 }
 function claudeModal(t){
   const c=S.d.config,P=c.prompts||[];
