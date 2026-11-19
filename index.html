@@ -354,7 +354,7 @@ function taskRow(t,o){
    '<div class="dd"><span class="dl '+bd+'">'+dateTxt+'</span>'+(small?'<small class="'+(bd==='over'?'over':'mute')+'">'+small+'</small>':'')+'</div>'+
    '<div><div class="ttl">'+esc(t.title)+badge+'</div>'+(sub.length?'<div class="sub">'+sub.join(' · ')+'</div>':'')+
    (n?'<div class="note">'+esc(n.t)+' <span class="mute">- '+esc(n.by||'')+', '+fshort(pd(n.at))+'</span></div>':'')+
-   (o.acts===false?'':'<div class="acts"><button class="g s" data-act="note">Add note</button><button class="g s" data-act="claude">Ask Claude</button>'+(t.output?'<button class="g s" data-act="view">View output</button>':'')+'<button class="g s" data-act="edit">Edit</button></div>')+'</div></div>';
+   (o.acts===false?'':'<div class="acts"><button class="g s" data-act="claude">Ask Claude</button>'+(t.output?'<button class="g s" data-act="view">View output</button>':'')+'</div>')+'</div></div>';
 }
 const tableHtml=(rows,dateLabel)=>'<div class="tbl"><div class="th"><span></span><span>'+(dateLabel||'Deadline')+'</span><span>Task</span></div>'+rows+'</div>';
 function ownerSection(name,total,rows,dateLabel){return '<h2 class="own">'+esc(name)+' <span class="cnt">'+total+'</span></h2>'+tableHtml(rows,dateLabel)}
@@ -393,6 +393,7 @@ function noteModal(t){
   },'Save note');
 }
 function bindTasks(root){
+  root.querySelectorAll('.tr[data-id]').forEach(r=>{r.style.cursor='pointer';r.onclick=e=>{if(e.target.closest('button,a,select,input'))return;const t=S.d.tasks.find(x=>x.id===r.dataset.id);if(t)editTask(t)}});
   root.querySelectorAll('[data-act]').forEach(el=>{
     const id=el.closest('[data-id]').dataset.id,act=el.dataset.act;
     el.onclick=()=>{const t=S.d.tasks.find(x=>x.id===id);if(!t)return;
@@ -480,6 +481,7 @@ function editTask(t){
       optimistic('tasks',l=>addOnce(l,[n]),'add task')}
     render();
   });
+  if(t){const nb=document.createElement('button');nb.className='g';nb.textContent='Add note';nb.onclick=()=>noteModal(t);const ok=$('#f_ok');ok.parentNode.insertBefore(nb,ok.nextSibling)}
 }
 function claudeModal(t){
   const c=S.d.config,P=c.prompts||[];
