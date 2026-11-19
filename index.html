@@ -189,6 +189,16 @@ async function listDir(dir){
   if(!r.ok)throw new Error(dir+': '+r.status);
   return (await r.json()).filter(f=>f.type==='file'&&/\.md$/.test(f.name)).map(f=>f.name).sort().reverse();
 }
+/** delete a library file from the repo; tasks that pointed at it lose the "View output" link */
+async function delFile(path){
+  const r0=await gh('/contents/'+path);
+  if(r0.status===404)return;
+  if(!r0.ok)throw new Error('delete '+path+': '+r0.status);
+  const sha=(await r0.json()).sha;
+  const r=await gh('/contents/'+path,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:'delete '+path+' ['+S.conn.me+']',sha})});
+  if(!r.ok)throw new Error('delete failed: '+r.status);
+  if((S.d.tasks||[]).some(t=>t.output===path))await optimistic('tasks',l=>{l.forEach(t=>{if(t.output===path)t.output=''});return l},'clear output link');
+}
 async function loadAll(){
   $('#sync').textContent='syncing…';
   try{
@@ -525,7 +535,9 @@ function claudeModal(t){
 async function viewFile(path){
   modal('<p class="mute">Loading…</p>');
   try{const r=await gh('/contents/'+path);if(!r.ok)throw new Error(r.status);const j=await r.json();const txt=b64d(j.content);
-    modal('<div class="md">'+md(txt)+'</div><button class="b" id="v_c">Continue in Claude</button><button class="g" id="v_cp">Copy text</button><button class="g" onclick="closeModal()">Close</button>');
+    modal('<div class="md">'+md(txt)+'</div><button class="b" id="v_c">Continue in Claude</button><button class="g" id="v_cp">Copy text</button><button class="g" onclick="closeModal()">Close</button><button class="g" id="v_del" style="color:var(--bad);float:right">Delete</button>');
+    {let armed=false;$('#v_del').onclick=()=>{if(!armed){armed=true;$('#v_del').textContent='Tap again to delete';return}
+      once($('#v_del'),async()=>{try{await delFile(path);closeModal();toast('Deleted');if(S.tab==='outputs')render()}catch(e){toast(e.message)}})}}
     $('#v_cp').onclick=()=>{copy(txt);toast('Copied')};
     $('#v_c').onclick=()=>openClaude('Continue from this document. Ask me what I want to do next, then proceed.\n\n'+txt);
   }catch(e){modal('<p>Could not load: '+esc(e.message)+'</p><button class="g" onclick="closeModal()">Close</button>')}
@@ -535,8 +547,11 @@ async function renderLibrary(m){
   m.querySelectorAll('[data-l]').forEach(e=>e.onclick=()=>{S.lib=e.dataset.l;render()});
   try{
     const dir=S.lib==='notes'?'notes':'outputs',files=await listDir(dir);
-    m.querySelector('p.mute').outerHTML=files.length?files.map(f=>'<div class="card" data-p="'+dir+'/'+esc(f)+'" style="cursor:pointer"><b>'+esc(f.replace(/\.md$/,'').replace(/^(\d{4}-\d{2}-\d{2})_/,'$1 · ').replace(/-/g,' ').replace(/(\d{4}) (\d{2}) (\d{2})/,'$1-$2-$3'))+'</b></div>').join(''):'<p class="mute">Nothing here yet.</p>';
-    m.querySelectorAll('[data-p]').forEach(e=>e.onclick=()=>viewFile(e.dataset.p));
+    m.querySelector('p.mute').outerHTML=files.length?files.map(f=>'<div class="card" data-p="'+dir+'/'+esc(f)+'" style="cursor:pointer;display:flex;align-items:center;gap:10px"><b style="flex:1">'+esc(f.replace(/\.md$/,'').replace(/^(\d{4}-\d{2}-\d{2})_/,'$1 · ').replace(/-/g,' ').replace(/(\d{4}) (\d{2}) (\d{2})/,'$1-$2-$3'))+'</b><button class="g s" data-del style="color:var(--bad);flex:none;margin:0">Delete</button></div>').join(''):'<p class="mute">Nothing here yet.</p>';
+    m.querySelectorAll('[data-p]').forEach(e=>e.onclick=ev=>{if(ev.target.closest('[data-del]'))return;viewFile(e.dataset.p)});
+    m.querySelectorAll('[data-del]').forEach(b=>{let armed=false;b.onclick=ev=>{ev.stopPropagation();const card=b.closest('[data-p]');
+      if(!armed){armed=true;b.textContent='Tap again to delete';setTimeout(()=>{armed=false;if(b.isConnected)b.textContent='Delete'},4000);return}
+      once(b,async()=>{try{await delFile(card.dataset.p);card.remove();toast('Deleted')}catch(e){toast(e.message)}})}});
   }catch(e){m.querySelector('p.mute').textContent=e.message}
 }
 let CAP={name:'',text:'',items:null};
