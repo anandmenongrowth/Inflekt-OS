@@ -316,6 +316,7 @@ const DEFAULT_TEAM=['Anand','Vishnu','Abhishek'];
 S.stack=[];
 function render(){
   if(S.lastTab!==undefined&&S.tab!==S.lastTab&&!S.popping){S.stack.push(S.lastTab);if(S.stack.length>20)S.stack.shift()}
+  if(S.lastTab!==undefined&&S.tab!==S.lastTab){window.scrollTo(0,0);requestAnimationFrame(()=>window.scrollTo(0,0))}   // a new tab always starts at the top
   S.lastTab=S.tab;S.popping=false;
   const conn=S.conn.repo&&S.conn.token,m=$('#main');
   $('#nav').style.display=conn?'flex':'none';
@@ -332,7 +333,7 @@ function render(){
   }
   ({today:renderToday,tasks:renderTasks,capture:renderCapture,outputs:renderLibrary,pipe:renderPipe})[S.tab](m);
 }
-$('#nav').addEventListener('click',e=>{const t=e.target.dataset.tab;if(t){S.tab=t;render()}});
+$('#nav').addEventListener('click',e=>{const t=e.target.dataset.tab;if(t){S.tab=t;render();window.scrollTo(0,0)}});
 $('#sync').addEventListener('click',()=>{S.tab='set';render()});
 
 /* ---- task row: [status dot] [deadline chip] [task, trail, latest note] ---- */
