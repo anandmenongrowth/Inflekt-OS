@@ -5,11 +5,21 @@
 #              SMTP_PASS = Gmail "app password" (needs 2-step verification on that account)
 name: Morning brief
 on:
+  # GitHub often starts scheduled runs hours late (seen: 8h). So we ask several times between
+  # ~05:15 and ~07:25 IST at off-peak minutes; the first run to start sends the mail and the
+  # rest see today's marker file and exit. That way the mail is in the inbox before 8am.
   schedule:
-    - cron: '30 2 * * *'     # 08:00 IST. GitHub can start scheduled runs 5-30 min late.
-  workflow_dispatch: {}       # "Run workflow" button for a test
+    - cron: '47 23 * * *'    # 05:17 IST
+    - cron: '23 0 * * *'     # 05:53 IST
+    - cron: '53 0 * * *'     # 06:23 IST
+    - cron: '23 1 * * *'     # 06:53 IST
+    - cron: '53 1 * * *'     # 07:23 IST
+  workflow_dispatch: {}       # "Run workflow" button: always sends (for a test)
 permissions:
   contents: write
+concurrency:
+  group: morning-brief
+  cancel-in-progress: false
 env:
   TZ: Asia/Kolkata
 jobs:
@@ -17,20 +27,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Already sent today?
+        id: chk
+        run: |
+          D=$(date +%F)
+          if [ -f ".brief-sent/$D" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then echo "sent=true" >> "$GITHUB_OUTPUT"; else echo "sent=false" >> "$GITHUB_OUTPUT"; fi
+          echo "today=$D" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
+        if: steps.chk.outputs.sent != 'true'
         with:
           repository: ${{ vars.CODE_REPO }}
           path: code
       - name: Build brief + auto tasks
+        if: steps.chk.outputs.sent != 'true'
         run: node code/scripts/brief-cli.js .
-      - name: Commit auto-generated tasks
-        run: |
-          git config user.name "inflekt-os-bot"
-          git config user.email "inflekt-os-bot@users.noreply.github.com"
-          git add data
-          git diff --cached --quiet || (git commit -m "auto: recurring + prep tasks" && git push)
       - name: Email the brief
+        if: steps.chk.outputs.sent != 'true'
         run: python3 code/scripts/send_mail.py
         env:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      - name: Commit auto tasks + mark today as sent
+        if: steps.chk.outputs.sent != 'true'
+        run: |
+          mkdir -p .brief-sent && date -u +%FT%TZ > ".brief-sent/${{ steps.chk.outputs.today }}"
+          git config user.name "inflekt-os-bot"
+          git config user.email "inflekt-os-bot@users.noreply.github.com"
+          git add data .brief-sent
+          git diff --cached --quiet || (git commit -m "auto: recurring + prep tasks, brief sent" && git pull --rebase -q && git push)
