@@ -26,5 +26,5 @@ Three people recording one call = one meeting. Transcripts are matched on start 
 3. `CODE_REPO` variable is already set (used by the morning brief).
 
 ## Where results go
-`data/inbox.json` (pending review) -> approve in the app -> tasks, events, pipeline milestones, decisions and the Library meeting note.
+`data/inbox.json` (pending review) -> approve in the app -> tasks, pipeline milestones and the Library meeting note.
 The first partner to approve closes the meeting for everyone.

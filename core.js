@@ -20,17 +20,8 @@ function computeAdds(d,now){
     else if(f==='monthly'){const last=new Date(td.getFullYear(),td.getMonth()+1,0).getDate();due=new Date(td.getFullYear(),td.getMonth(),Math.min(+r.day||1,last));period=ymd(td).slice(0,7)}
     else return;
     if(td<addD(due,-(+r.lead||0)))return;
-    const key='REC|'+(r.id||i)+'|'+period;if(have.has(key))return;
+    const key='REC|'+(r.id||i)+'|'+period;if(have.has(key)||(c.skipKeys||[]).includes(key))return;
     adds.push(mk({track:r.track,title:r.task,owner:r.owner,due:ymd(due),pri:r.pri,source:'Recurring',key}));
-  });
-  (d.events||[]).forEach(e=>{
-    const ed=pd(e.date);if(!ed||td>addD(ed,2))return;
-    (c.prep||[]).filter(t=>t.template===e.template).forEach((t,ti)=>{
-      const due=addD(ed,+t.offset||0);if(td<addD(due,-1))return;
-      const owners=String(t.who).toLowerCase()==='everyone'?team:[e.owner];
-      owners.forEach(o=>{const key='EVT|'+e.id+'|'+ti+'|'+o;if(have.has(key))return;
-        adds.push(mk({track:e.track,title:t.task+'  ['+e.event+']',owner:o,due:ymd(due<td?td:due),pri:t.pri,source:'Event prep',key}))});
-    });
   });
   return adds;
 }
@@ -55,11 +46,12 @@ function dueText(t,td){const x=pd(t.due);if(!x)return 'No date';return fshort(x)
 /** Structured brief: draws the Today page and feeds the text version. */
 function briefData(d,now){
   const c=d.config||{},td=today(now),all=d.tasks||[],open=all.filter(isOpen),team=c.team||[],max=c.maxTasks||5;
+  const inWindow=t=>!pd(t.due)||pd(t.due)<=addD(td,1);   // Today only shows what is due by tomorrow (D+1); later tasks stay in the Tasks tab
   const owners=team.map(p=>{
-    const mine=open.filter(t=>t.owner===p&&t.status!=='waiting'&&(t.status==='doing'||!pd(t.due)||pd(t.due)<=addD(td,1))).sort(byDue);
+    const mine=open.filter(t=>t.owner===p&&t.status!=='waiting'&&inWindow(t)).sort(byDue);
     return{name:p,total:mine.length,tasks:mine.slice(0,max)};
   });
-  const waiting=open.filter(t=>t.status==='waiting').sort((a,b)=>String(a.waitSince).localeCompare(String(b.waitSince)));
+  const waiting=open.filter(t=>t.status==='waiting'&&inWindow(t)).sort((a,b)=>String(a.waitSince).localeCompare(String(b.waitSince)));
   const wk=addD(td,-7);
   const closed=all.filter(t=>t.status==='done'&&pd(t.doneOn)&&pd(t.doneOn)>=wk).sort((a,b)=>String(b.doneOn).localeCompare(String(a.doneOn)));
   const pipe=(d.pipeline||[]).filter(p=>(p.status?p.status==='Warm':!/won|lost/i.test(p.stage)));
@@ -67,7 +59,6 @@ function briefData(d,now){
   if(over.length>=3)f.push(over.length+' tasks overdue - clear or re-date in the first 10 min.');
   open.filter(t=>(t.slips||0)>=2).forEach(t=>f.push('Deadline moved '+t.slips+' times: '+t.title+' ('+(t.owner||'no owner')+')'));
   waiting.filter(t=>pd(t.waitSince)&&diff(pd(t.waitSince),td)>=5).forEach(t=>f.push('Waiting '+diff(pd(t.waitSince),td)+'d on '+(t.waitingOn||'someone')+': '+t.title+' - time to nudge'));
-  (d.events||[]).forEach(e=>{const ed=pd(e.date);if(!ed)return;const dd=diff(td,ed);if(dd>=0&&dd<=3){const n=open.filter(t=>String(t.key).startsWith('EVT|'+e.id+'|')).length;f.push(e.event+' in '+dd+' day(s) - '+n+' prep task(s) open (owner '+e.owner+')')}});
   pipe.forEach(p=>{const lt=pd(p.last);if(!lt||diff(lt,td)>=(c.staleDays||7))f.push(p.company+': no touch '+(lt?diff(lt,td)+'d':'ever')+'. Next: '+(p.next||'define next step')+' ('+(p.owner||'no owner')+')')});
   const touched=(d.pipeline||[]).filter(p=>pd(p.last)&&pd(p.last)>=wk).length;
   if(touched<(c.outreachPerWeek||5))f.push('Only '+touched+' outreach touches in 7 days (goal '+(c.outreachPerWeek||5)+')');
@@ -95,7 +86,7 @@ function buildBrief(d,now){
   b.flags.forEach(x=>{if(typeof x==='string')L.push('- '+x);else{L.push('- '+x.t);x.sub.forEach(s=>L.push('   - '+s))}});
   return L.join('\n');
 }
-const CORE_V=6;
+const CORE_V=7;
 const C={CORE_V,pad,ymd,pd,today,addD,diff,fshort,fday,uid,DOW,computeAdds,mk,byDue,isOpen,band,lastNote,statusText,dueText,briefData,buildBrief};
 if(typeof module!=='undefined'&&module.exports)module.exports=C;else Object.assign(root,C);
 })(typeof window!=='undefined'?window:globalThis);

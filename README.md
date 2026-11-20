@@ -4,7 +4,7 @@ Static web app (`index.html` + `core.js`), no backend, no paid API. Data lives i
 
 ```
 index.html          the app (Today / Tasks / Capture / Library / Pipeline / Settings)
-core.js             brief + recurring/prep logic, shared by the app and the 8am Action
+core.js             brief + recurring-task logic, shared by the app and the 8am Action
 scripts/            brief-cli.js + send_mail.py (run by GitHub Actions)
 workflow/morning-brief.yml   copy into the DATA repo
 ```
@@ -22,7 +22,7 @@ workflow/morning-brief.yml   copy into the DATA repo
    - In Testing mode Google shows an "unverified app" warning; it is your own app, continue.
 
 ## Daily flow
-- 8am: the brief arrives by email, and recurring/prep tasks are already created. Open the app, **Copy brief + open WhatsApp group**, paste, send.
+- 8am: the brief arrives by email, and recurring tasks are already created. Open the app, **Copy brief + open WhatsApp group**, paste, send.
 - After a meeting: **Capture** > import from Drive or **Pull latest from Granola** > Claude extracts > review > push.
 - **Ask Claude** on a task: pick template, edit, send to claude.ai, paste the answer back into the Library.
 

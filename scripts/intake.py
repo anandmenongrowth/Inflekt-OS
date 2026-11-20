@@ -113,7 +113,6 @@ def prompt_for(cfg, pipeline, hint, text):
     team = ', '.join(cfg.get('team', []))
     tracks = ' | '.join(t['name'] for t in cfg.get('tracks', []))
     leads = ' | '.join(p.get('company', '') for p in pipeline if p.get('company')) or '(none)'
-    types = ' | '.join(sorted({p['template'] for p in cfg.get('prep', []) if p.get('template')}))
     when = hint['start'].strftime('%Y-%m-%d %H:%M') if hint.get('start') else ''
     L = []
     L.append('You are the meeting-capture assistant for Inflekt OS (Inflekt Growth, a 3-partner growth consultancy). Today is %s (%s).' % (today.isoformat(), today.strftime('%A')))
@@ -123,15 +122,14 @@ def prompt_for(cfg, pipeline, hint, text):
     L.append('Team: ' + team)
     L.append('Tracks: ' + tracks)
     L.append('Existing leads/clients: ' + leads)
-    L.append('Event types: ' + types)
     L.append('')
     L.append('The transcript is an automatic transcription. It may mix English, Hindi and Hinglish (Hindi in Roman or Devanagari script), contain recognition errors and have no speaker labels. Understand all of it, infer who said what from the names used, and write EVERYTHING in your answer in clear English (keep names, brands and numbers exact).')
     L.append('')
     L.append('Reply with ONE code block (```text ... ```) and nothing outside it. Inside, exactly these three parts in this order:')
     L.append('===META===\n{"title":"short meeting title","date":"YYYY-MM-DD","lead":"exact name from the existing leads list, or empty","track":"exact track name, or empty"}')
     L.append('===NOTE===\nA clean meeting note in markdown, max ~350 words: "## Summary" (3-5 lines), "## Key points" (bullets: facts, numbers, stakeholders, objections, what they need, commitments), "## Open questions & risks". Do not paste the transcript. Do not use triple backticks inside the note.')
-    L.append('===ITEMS===\nA valid JSON array. Each item: {"type":"task|event|decision|leadupdate|lead|reading","text":"...","owner":"","due":"YYYY-MM-DD or empty","track":"","priority":"P1|P2|P3","note":"ONE short line of context from the meeting","detail":"","template":"","lead":"","status":"","waitingOn":""}')
-    L.append('Rules for items:\n- task: text = short imperative headline; note = one line saying why / what was said in the meeting; owner only if explicit or unambiguous (one of the team); if we are waiting on someone outside the team, put their name in waitingOn and keep owner = our team member who follows up.\n- event: a dated meeting/call/deadline; text = name; due = its date; template = one of the event types (call or meeting with a prospect/client = Exploratory call; internal partner discussion = Internal discussion; else empty).\n- decision: something agreed; text = the decision; note = the reason; lead = existing lead it concerns, if any.\n- leadupdate: news about an EXISTING lead; lead = exact name from the list; text = one-line milestone to log (what happened); status = Active, Warm, Completed or Dropped only if clearly changed, else empty; detail = next step.\n- lead: a NEW company to approach that is not in the list; text = company; detail = context.\n- reading: an article or link to read.\n- Resolve relative dates against today. Never invent anything. Skip chit-chat. Be complete: every action, decision, date and lead update in the transcript.')
+    L.append('===ITEMS===\nA valid JSON array. Each item: {"type":"task|leadupdate|lead","text":"...","owner":"","due":"YYYY-MM-DD or empty","track":"","priority":"P1|P2|P3","note":"ONE short line of context from the meeting","detail":"","lead":"","status":"","waitingOn":""}')
+    L.append('Everything actionable is a TASK. There are no separate events, decisions or readings: a meeting, call or deadline that must happen = a task with its date as due; an agreed decision that needs follow-through = a task; something to read = a task. Purely informational decisions go into the note, not the items.\nRules for items:\n- task: text = short imperative headline; note = one line saying why / what was said in the meeting; owner only if explicit or unambiguous (one of the team); if we are waiting on someone outside the team, put their name in waitingOn and keep owner = our team member who follows up.\n- leadupdate: news about an EXISTING lead; lead = exact name from the list; text = one-line milestone to log (what happened); status = Active, Warm, Completed or Dropped only if clearly changed, else empty; detail = next step.\n- lead: a NEW company to approach that is not in the list; text = company; detail = context.\n- Resolve relative dates against today. Never invent anything. Skip chit-chat. Be complete: every action and lead update in the transcript.')
     L.append('')
     L.append('TRANSCRIPT:\n---\n' + text)
     return '\n'.join(L)

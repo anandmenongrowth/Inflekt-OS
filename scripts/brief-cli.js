@@ -1,10 +1,10 @@
 // Runs in GitHub Actions at 8am IST. Usage: node brief-cli.js <path-to-data-repo-checkout>
-// 1) materialises recurring + event-prep tasks into data/tasks.json  2) writes mail.json for send_mail.py
+// 1) materialises recurring tasks into data/tasks.json  2) writes mail.json for send_mail.py
 const fs = require('fs'), path = require('path');
 const core = require('../core.js');
 const root = process.argv[2] || '.';
 const rd = (n, def) => { try { return JSON.parse(fs.readFileSync(path.join(root, 'data', n + '.json'), 'utf8')); } catch (e) { return def; } };
-const d = { config: rd('config', {}), tasks: rd('tasks', []), events: rd('events', []), pipeline: rd('pipeline', []), decisions: rd('decisions', []), inbox: rd('inbox', []) };
+const d = { config: rd('config', {}), tasks: rd('tasks', []), pipeline: rd('pipeline', []), inbox: rd('inbox', []) };
 
 const have = new Set(d.tasks.map(t => t.key).filter(Boolean));
 const adds = core.computeAdds(d).filter(a => !have.has(a.key));

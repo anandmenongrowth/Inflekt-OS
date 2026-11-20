@@ -54,4 +54,4 @@ jobs:
           git config user.name "inflekt-os-bot"
           git config user.email "inflekt-os-bot@users.noreply.github.com"
           git add data .brief-sent
-          git diff --cached --quiet || (git commit -m "auto: recurring + prep tasks, brief sent" && git pull --rebase -q && git push)
+          git diff --cached --quiet || (git commit -m "auto: recurring tasks, brief sent" && git pull --rebase -q && git push)

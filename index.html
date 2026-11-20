@@ -84,11 +84,6 @@ label{font-size:14px;font-weight:600;color:var(--mute)}
 .pill{display:inline-block;color:#fff;font-size:12px;font-weight:700;border-radius:99px;padding:2px 10px}
 .pdet{grid-column:1/-1;margin-top:10px;font-size:14px}.pk{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mute);margin-right:6px}.pms{white-space:pre-line;font-size:14px}
 .evh{display:flex;align-items:center;gap:10px;border-bottom:3px solid #6b5bd2;padding-bottom:6px;margin:18px 0 8px}.evh h2{margin:0;color:#5b4bc4}.evh .cnt{background:#6b5bd2}
-.evt{display:flex;gap:12px;align-items:flex-start;background:#f1eefc;border:1px solid #d9d2f5;border-left:6px solid #6b5bd2;border-radius:14px;padding:11px 12px;margin:8px 0}
-.evd{flex:none;width:50px;text-align:center;background:#6b5bd2;color:#fff;border-radius:10px;padding:5px 0;line-height:1.15}.evd b{display:block;font-size:20px;font-weight:700}.evd span{font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
-.evm{flex:1;min-width:0}.evt-t{font-size:16px;font-weight:700}.etype{display:inline-block;background:#6b5bd2;color:#fff;border-radius:99px;padding:0 9px;font-size:11.5px;font-weight:700}
-.evt .sub{margin-top:4px}.evt .acts{margin-top:4px}
-@media(prefers-color-scheme:dark){.evt{background:#241f3d;border-color:#3b3366}.evh h2{color:#a99cff}}
 .rvev{background:#f1eefc;border-left:6px solid #6b5bd2}@media(prefers-color-scheme:dark){.rvev{background:#241f3d}}
 #mbody textarea{min-height:84px}
 .badge{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:1px 7px;background:#fce8b2;color:#6b4a00;margin-left:8px;vertical-align:middle}
@@ -102,10 +97,10 @@ label{font-size:14px;font-weight:600;color:var(--mute)}
 <div id="modal"><div class="in" id="mbody"></div></div>
 <div class="toast" id="toast"></div>
 
-<script src="core.js?v=6"></script>
+<script src="core.js?v=7"></script>
 <script>
 /* ============ tiny utils ============ */
-const coreOK=(typeof CORE_V!=='undefined'&&CORE_V>=6);
+const coreOK=(typeof CORE_V!=='undefined'&&CORE_V>=7);
 if(!coreOK&&!sessionStorage.getItem('rl')){sessionStorage.setItem('rl','1');(async()=>{try{for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister();for(const k of await caches.keys())await caches.delete(k)}catch(e){}location.reload()})()}
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -118,7 +113,7 @@ function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';cl
 /* ============ state + GitHub sync ============ */
 const S={conn:LS.get('conn',{repo:'Inflekt-Growth/inflekt-os-data',token:'',me:''}),d:{},tab:'today',filter:'me',ready:false};
 if(S.conn.repo==='anandmenongrowth/inflekt-os-data'){S.conn.repo='Inflekt-Growth/inflekt-os-data';LS.set('conn',S.conn)}   // repo moved to the organisation
-const FILES={config:{},tasks:[],events:[],pipeline:[],decisions:[],imported:[],meetings:[],inbox:[],transcripts:[]};
+const FILES={config:{},tasks:[],pipeline:[],imported:[],meetings:[],inbox:[],transcripts:[]};
 const API='https://api.github.com/repos/';
 async function gh(path,opt={}){
   return fetch(API+S.conn.repo+path,{cache:'no-store',...opt,headers:{Authorization:'Bearer '+S.conn.token,Accept:'application/vnd.github+json',...(opt.headers||{})}});
@@ -197,7 +192,7 @@ async function delFile(path){
   const sha=(await r0.json()).sha;
   const r=await gh('/contents/'+path,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:'delete '+path+' ['+S.conn.me+']',sha})});
   if(!r.ok)throw new Error('delete failed: '+r.status);
-  if(path.startsWith('notes/')){await optimistic('meetings',l=>l.filter(x=>x.path!==path),'meeting index');await optimistic('decisions',l=>{const n=l.filter(x=>x.meeting!==path);return n.length===l.length?false:n},'decisions of deleted note')}
+  if(path.startsWith('notes/')){await optimistic('meetings',l=>l.filter(x=>x.path!==path),'meeting index')}
   if((S.d.tasks||[]).some(t=>t.output===path))await optimistic('tasks',l=>{l.forEach(t=>{if(t.output===path)t.output=''});return l},'clear output link');
 }
 async function loadAll(){
@@ -210,10 +205,10 @@ async function loadAll(){
   render();
 }
 
-/* ============ automation: recurring + event prep ============ */
+/* ============ automation: recurring tasks ============ */
 async function materialize(){
   const adds=computeAdds(S.d);if(!adds.length)return;
-  await mutate('tasks',list=>{const have=new Set(list.map(t=>t.key).filter(Boolean));const n=adds.filter(a=>!have.has(a.key));if(!n.length)return false;return list.concat(n)},'auto: recurring + prep tasks');
+  await mutate('tasks',list=>{const have=new Set(list.map(t=>t.key).filter(Boolean));const n=adds.filter(a=>!have.has(a.key));if(!n.length)return false;return list.concat(n)},'auto: recurring tasks');
 }
 function autoOwner(t){ // fallback owner = track owner, else least loaded
   const c=S.d.config,tr=(c.tracks||[]).find(x=>x.name===t.track);if(tr&&tr.owner)return tr.owner;
@@ -235,16 +230,6 @@ function copy(text){
   try{navigator.clipboard.writeText(text)}catch(e){}
   const t=document.createElement('textarea');t.value=text;t.style.position='fixed';t.style.opacity=0;document.body.appendChild(t);t.select();try{document.execCommand('copy')}catch(e){}t.remove();
 }
-function extractPrompt(text,name){
-  const c=S.d.config;
-  return 'You are the task extractor for Inflekt OS. Today is '+ymd(today())+' ('+today().toLocaleDateString('en-GB',{weekday:'long'})+').\n'+
-  'Team: '+(c.team||[]).join(', ')+'\nTracks: '+(c.tracks||[]).map(t=>t.name).join(' | ')+'\n\n'+
-  'From the text below, return ONLY a JSON array, no prose. Each item: {"type":"task|decision|event|lead|reading","text":"short imperative","owner":"one of the team or empty","due":"YYYY-MM-DD or empty","track":"closest track or empty","priority":"P1|P2|P3","detail":"optional one line","template":"for events only: one of ['+evTypes().join(' | ')+'] or empty"}.\n'+
-  'Rules: set owner only if explicitly assigned or unambiguous; never invent tasks; resolve relative dates against today; decisions = things agreed; event = a dated meeting/deadline (set template: a call or meeting with a prospect/client/external person = Exploratory call; an internal partner discussion = Internal discussion; otherwise empty); lead = a company to approach; reading = an article/link to read; skip chit-chat.\n\n'+
-  (text?'SOURCE: '+(name||'notes')+'\n---\n'+text
-   :'SOURCE: use the Granola connector. First list my meetings from the last 24 hours'+(name?' (and prefer the one named "'+name+'")':'')+'; then read the notes of each and extract from all of them. Add a "meeting" field (meeting title) to every item. If you cannot access Granola, tell me and stop.');
-}
-
 /* ============ Google Drive import (per-person sign-in, read-only) ============ */
 let gTok=null,gExp=0;
 function loadGis(){return new Promise((res,rej)=>{if(window.google&&google.accounts&&google.accounts.oauth2)return res();const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.onload=res;s.onerror=()=>rej(new Error('Could not load Google sign-in'));document.head.appendChild(s)})}
@@ -426,37 +411,6 @@ function renderToday(m){
   $('#send').onclick=()=>{copy(text);toast('Brief copied - paste in the group');window.open(c.groupLink||'https://wa.me/?text='+encodeURIComponent(text),'_blank')};
   $('#ref').onclick=loadAll;bindTasks(m);
 }
-const evTypes=()=>[...new Set((S.d.config.prep||[]).map(p=>p.template).filter(Boolean))];
-function eventsHtml(view,tr){
-  if(view!=='open'&&view!=='all')return '';
-  const td=today();
-  let ev=(S.d.events||[]).filter(e=>!tr||e.track===tr);
-  if(view==='open')ev=ev.filter(e=>pd(e.date)&&diff(td,pd(e.date))>=0).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
-  else ev.sort((a,b)=>String(b.date).localeCompare(String(a.date)));
-  if(!ev.length)return view==='open'?'<div class="evh"><h2>Events</h2></div><p class="mute" style="margin:0 0 6px">No upcoming events. Add one, or confirm events found in Capture.</p>':'';
-  return '<div class="evh"><h2>Events</h2><span class="cnt">'+ev.length+'</span></div>'+ev.map(e=>{
-    const d=pd(e.date),n=d?diff(td,d):null,when=n===null?'No date':n===0?'Today':n===1?'Tomorrow':n>1?'In '+n+' days':Math.abs(n)+'d ago';
-    const prep=(S.d.tasks||[]).filter(t=>String(t.key||'').startsWith('EVT|'+e.id+'|'));
-    const sub=[];sub.push('<b>'+when+'</b>');if(e.owner)sub.push(esc(e.owner));if(e.track)sub.push('<span class="trk">'+esc(tn(e.track))+'</span>');
-    if(e.template)sub.push(prep.filter(t=>isOpen(t)).length+' of '+prep.length+' prep tasks open');
-    return '<div class="evt" data-eid="'+e.id+'"><div class="evd"><b>'+(d?d.getDate():'?')+'</b><span>'+(d?MONS[d.getMonth()]:'')+'</span></div><div class="evm"><div class="evt-t">'+esc(e.event)+'</div><div class="sub">'+(e.template?'<span class="etype">'+esc(e.template)+'</span> · ':'<span class="mute">No prep type</span> · ')+sub.join(' · ')+'</div>'+(e.notes?'<div class="sub">'+esc(e.notes)+'</div>':'')+'<div class="acts"><button class="g s" data-ea="edit">Edit event</button></div></div></div>'}).join('');
-}
-function editEvent(e){
-  const c=S.d.config;
-  form(e?'Edit event':'New event',[{k:'event',label:'Event / meeting',val:e?.event},{k:'date',label:'Date',type:'date',val:e?.date||ymd(today())},
-   {k:'template',label:'Type (decides which prep tasks are created)',type:'select',opts:[['','Other - no prep tasks'],...evTypes()],val:e?.template||''},
-   {k:'owner',label:'Owner',type:'select',opts:c.team,val:e?.owner||S.conn.me},
-   {k:'track',label:'Track',type:'select',opts:[['',''],...(c.tracks||[]).map(x=>[x.name,tn(x.name)])],val:e?.track||''},{k:'notes',label:'Notes',type:'area',val:e?.notes}],
-   async o=>{if(!o.event.trim())throw new Error('Event name needed');if(!o.date)throw new Error('Pick a date');
-    const ne=e?null:{id:uid(),...o};
-    await optimistic('events',l=>{if(e){Object.assign(l.find(y=>y.id===e.id)||{},o);return l}return addOnce(l,[ne])},'event');
-    materialize().then(()=>render()).catch(()=>{});toast(o.template?'Event saved - prep tasks are being created':'Event saved')});
-  if(e){const d=document.createElement('button');d.className='g';d.style.cssText='color:var(--bad);float:right';d.textContent='Delete';let armed=false;
-    d.onclick=()=>{if(!armed){armed=true;d.textContent='Tap again to delete (also removes its open prep tasks)';return}
-      once(d,async()=>{closeModal();const pre='EVT|'+e.id+'|';await optimistic('events',l=>l.filter(y=>y.id!==e.id),'delete event');
-        await optimistic('tasks',l=>{const n=l.filter(t=>!(String(t.key||'').startsWith(pre)&&isOpen(t)));return n.length===l.length?false:n},'remove prep tasks');toast('Event deleted')})};
-    $('#f_ok').parentNode.appendChild(d)}
-}
 function renderTasks(m){
   const c=S.d.config,team=c.team||[],f=S.filter,view=S.view||'open',tr=S.trackF||'';
   let list=(S.d.tasks||[]).filter(t=>(f==='all'?true:t.owner===(f==='me'?S.conn.me:f))&&(!tr||t.track===tr));
@@ -472,13 +426,42 @@ function renderTasks(m){
   const tracks=(c.tracks||[]).map(x=>x.name);
   m.innerHTML='<div class="chips">'+[['me','Me'],...team.map(p=>[p,p]),['all','All']].map(x=>'<span class="chip '+(f===x[0]?'on':'')+'" data-f="'+x[0]+'">'+esc(x[1])+'</span>').join('')+'</div>'+
    '<div class="chips">'+Object.keys(VIEWS).map(k=>'<span class="chip '+(view===k?'on':'')+'" data-v="'+k+'">'+VIEWS[k][0]+'</span>').join('')+'</div>'+
-   '<div class="ctl"><select id="trk"><option value="">All tracks</option>'+tracks.map(x=>'<option value="'+esc(x)+'"'+(x===tr?' selected':'')+'>'+esc(tn(x))+'</option>').join('')+'<option value="__new">+ Add new track…</option></select>'+
-   '<button class="b" id="add">+ Task</button><button class="b" id="addev" style="background:#6b5bd2">+ Event</button></div>'+eventsHtml(view,tr)+(view==='open'||view==='all'?'<div class="evh" style="border-color:var(--brand)"><h2 style="color:var(--brand)">Tasks</h2></div>':'')+body;
+   '<div class="ctl"><select id="trk"><option value="">All tracks</option>'+tracks.map(x=>'<option value="'+esc(x)+'"'+(x===tr?' selected':'')+'>'+esc(tn(x))+'</option>').join('')+'<option value="__new">+ Add new track…</option><option value="__manage">Rename / delete tracks…</option></select>'+
+   '<button class="b" id="add">+ Add task</button></div>'+body;
   m.querySelectorAll('[data-f]').forEach(e=>e.onclick=()=>{S.filter=e.dataset.f;render()});
   m.querySelectorAll('[data-v]').forEach(e=>e.onclick=()=>{S.view=e.dataset.v;render()});
-  $('#trk').onchange=e=>{if(e.target.value==='__new'){render();return addTrack()}S.trackF=e.target.value;render()};
-  $('#add').onclick=()=>editTask(null);$('#addev').onclick=()=>editEvent(null);
-  m.querySelectorAll('[data-ea]').forEach(b=>b.onclick=()=>editEvent((S.d.events||[]).find(x=>x.id===b.closest('[data-eid]').dataset.eid)));bindTasks(m);
+  $('#trk').onchange=e=>{if(e.target.value==='__new'){render();return addTrack()}if(e.target.value==='__manage'){render();return manageTracks()}S.trackF=e.target.value;render()};
+  $('#add').onclick=()=>editTask(null);bindTasks(m);
+}
+function manageTracks(){
+  const tr=S.d.config.tracks||[];
+  modal('<h2 style="margin-top:0">Tracks</h2>'+(tr.map((t,i)=>{const n=(S.d.tasks||[]).filter(x=>x.track===t.name&&isOpen(x)).length;
+    return '<div class="card" style="display:flex;gap:8px;align-items:center;margin:6px 0;padding:10px"><div style="flex:1;min-width:0"><b>'+esc(tn(t.name))+'</b><div class="sub">'+esc(t.owner||'no owner')+' · '+n+' open task'+(n===1?'':'s')+'</div></div><button class="g s" data-tr="ren" data-i="'+i+'" style="margin:0">Rename</button><button class="g s" data-tr="del" data-i="'+i+'" style="margin:0;color:var(--bad)">Delete</button></div>'}).join('')||'<p class="mute">No tracks yet.</p>')+
+    '<p class="mute">Deleting a track keeps its tasks; they just lose the track label.</p><button class="b" id="mt_add">+ Add track</button><button class="g" onclick="closeModal()">Close</button>');
+  $('#mt_add').onclick=()=>addTrack();
+  document.querySelectorAll('#mbody [data-tr]').forEach(b=>{let armed=false;b.onclick=()=>{const t=tr[+b.dataset.i];if(!t)return;
+    if(b.dataset.tr==='ren')return renameTrack(t);
+    if(!armed){armed=true;b.textContent='Tap again';setTimeout(()=>{armed=false;if(b.isConnected)b.textContent='Delete'},4000);return}
+    once(b,async()=>{closeModal();deleteTrack(t.name)})}});
+}
+function renameTrack(t){
+  form('Rename track',[{k:'name',label:'Track name',val:tn(t.name)},{k:'owner',label:'Owner',type:'select',opts:S.d.config.team,val:t.owner}],async o=>{
+    const nn=o.name.trim().replace(/^T\d+\s+/,''),old=t.name;if(!nn)throw new Error('Track name needed');
+    if((S.d.config.tracks||[]).some(x=>x.name!==old&&normName(x.name)===normName(nn)))throw new Error('Another track already has that name');
+    optimistic('config',c=>{(c.tracks||[]).forEach(x=>{if(x.name===old){x.name=nn;x.owner=o.owner}});(c.recurring||[]).forEach(r=>{if(r.track===old)r.track=nn});return c},'rename track');
+    if(nn!==old){
+      if(S.trackF===old)S.trackF=nn;
+      optimistic('tasks',l=>{let ch=false;l.forEach(x=>{if(x.track===old){x.track=nn;ch=true}});return ch?l:false},'rename track on tasks');
+      optimistic('meetings',l=>{let ch=false;l.forEach(x=>{if(x.track===old){x.track=nn;ch=true}});return ch?l:false},'rename track on meetings')}
+    toast('Track renamed')},'Rename');
+}
+function deleteTrack(name){
+  if(S.trackF===name)S.trackF='';
+  const n=(S.d.tasks||[]).filter(x=>x.track===name).length;
+  optimistic('config',c=>{c.tracks=(c.tracks||[]).filter(x=>x.name!==name);(c.recurring||[]).forEach(r=>{if(r.track===name)r.track=''});return c},'delete track');
+  optimistic('tasks',l=>{let ch=false;l.forEach(x=>{if(x.track===name){x.track='';ch=true}});return ch?l:false},'clear deleted track on tasks');
+  optimistic('meetings',l=>{let ch=false;l.forEach(x=>{if(x.track===name){x.track='';ch=true}});return ch?l:false},'clear deleted track on meetings');
+  toast('Track deleted'+(n?'; its '+n+' task'+(n===1?'':'s')+' kept without a track':''));
 }
 function addTrack(){
   form('New track',[{k:'name',label:'Track name'},{k:'owner',label:'Owner',type:'select',opts:S.d.config.team,val:S.conn.me}],async o=>{
@@ -507,6 +490,12 @@ function editTask(t){
       optimistic('tasks',l=>addOnce(l,[n]),'add task')}
     render();
   });
+  if(t){const d=document.createElement('button');d.className='g';d.style.cssText='color:var(--bad);float:right';d.textContent='Delete task';let armed=false;
+    d.onclick=()=>{if(!armed){armed=true;d.textContent='Tap again to delete';return}
+      once(d,async()=>{closeModal();
+        if(t.key)optimistic('config',c=>{c.skipKeys=(c.skipKeys||[]).concat(t.key);return c},'recurring: skip deleted');   // a deleted recurring task must not be re-created
+        await optimistic('tasks',l=>l.filter(y=>y.id!==t.id),'delete task');toast('Task deleted')})};
+    $('#f_ok').parentNode.appendChild(d)}
 }
 function claudeModal(t){
   const c=S.d.config,P=c.prompts||[];
@@ -558,7 +547,7 @@ async function renderLibrary(m){
     const dir=S.lib==='notes'?'notes':'outputs',files=await listDir(dir);
     const card=f=>{const p=dir+'/'+f,mt=(S.d.meetings||[]).find(x=>x.path===p);
       const title=mt?mt.title:f.replace(/\.md$/,'').replace(/^(\d{4}-\d{2}-\d{2})_/,'$1 · ').replace(/-/g,' ').replace(/(\d{4}) (\d{2}) (\d{2})/,'$1-$2-$3');
-      const tags=mt?[mt.date?fyr(mt.date):'',mt.lead,mt.track?tn(mt.track):'',mt.counts&&mt.counts.decisions?mt.counts.decisions+' decision'+(mt.counts.decisions>1?'s':''):''].filter(Boolean).map(esc).join(' · '):'';
+      const tags=mt?[mt.date?fyr(mt.date):'',mt.lead,mt.track?tn(mt.track):''].filter(Boolean).map(esc).join(' · '):'';
       return '<div class="card" data-p="'+esc(p)+'" style="cursor:pointer;display:flex;align-items:center;gap:10px"><div style="flex:1"><b>'+esc(title)+'</b>'+(tags?'<div class="sub">'+tags+'</div>':'')+'</div><button class="g s" data-del style="color:var(--bad);flex:none;margin:0">Delete</button></div>'};
     m.querySelector('p.mute').outerHTML=files.length?files.map(card).join(''):'<p class="mute">Nothing here yet.</p>';
     m.querySelectorAll('[data-p]').forEach(e=>e.onclick=ev=>{if(ev.target.closest('[data-del]'))return;viewFile(e.dataset.p)});
@@ -571,8 +560,8 @@ async function renderLibrary(m){
 /* ============ Capture: transcript -> Claude -> one reply -> review item by item -> push ============ */
 const capNew=o=>Object.assign({name:'',text:'',items:null,step:0,note:'',meta:{},lead:'',track:'',date:'',driveId:undefined},o||{});
 let CAP=capNew();
-const IT_TYPES=[['task','Task'],['event','Event'],['decision','Decision'],['leadupdate','Update to an existing lead'],['lead','New lead'],['reading','Reading']];
-const IT_COL={task:'#1b7f88',event:'#6b5bd2',decision:'#c2410c',leadupdate:'#1f9d55',lead:'#f2a10c',reading:'#5d6a72'};
+const IT_TYPES=[['task','Task'],['leadupdate','Update to an existing lead'],['lead','New lead']];
+const IT_COL={task:'#1b7f88',leadupdate:'#1f9d55',lead:'#f2a10c'};
 const normName=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
 const findLead=n=>n?(S.d.pipeline||[]).find(p=>normName(p.company)===normName(n)):null;
 const leadNames=()=>(S.d.pipeline||[]).map(p=>p.company).filter(Boolean);
@@ -585,13 +574,12 @@ function capPrompt(name,text){
   L.push('Team: '+(c.team||[]).join(', '));
   L.push('Tracks: '+(c.tracks||[]).map(t=>t.name).join(' | '));
   L.push('Existing leads/clients: '+(leadNames().join(' | ')||'(none)'));
-  L.push('Event types: '+evTypes().join(' | '));
   L.push('');
   L.push('Read the meeting transcript and reply with ONE code block (```text ... ```) and nothing outside it. Inside, exactly these three parts in this order:');
   L.push('===META===\n{"title":"short meeting title","date":"YYYY-MM-DD","lead":"exact name from the existing leads list, or empty","track":"exact track name, or empty"}');
   L.push('===NOTE===\nA clean meeting note in markdown, max ~350 words: "## Summary" (3-5 lines), "## Key points" (bullets: facts, numbers, stakeholders, objections, what they need, commitments), "## Open questions & risks". Do not paste the transcript. Do not use triple backticks inside the note.');
-  L.push('===ITEMS===\nA valid JSON array. Each item: {"type":"task|event|decision|leadupdate|lead|reading","text":"...","owner":"","due":"YYYY-MM-DD or empty","track":"","priority":"P1|P2|P3","note":"ONE short line of context from the meeting","detail":"","template":"","lead":"","status":"","waitingOn":""}');
-  L.push('Rules for items:\n- task: text = short imperative headline; note = one line saying why / what was said in the meeting; owner only if explicit or unambiguous (one of the team); if we are waiting on someone outside the team, put their name in waitingOn and keep owner = our team member who follows up.\n- event: a dated meeting/call/deadline; text = name; due = its date; template = one of the event types (call or meeting with a prospect/client = Exploratory call; internal partner discussion = Internal discussion; else empty).\n- decision: something agreed; text = the decision; note = the reason; lead = existing lead it concerns, if any.\n- leadupdate: news about an EXISTING lead; lead = exact name from the list; text = one-line milestone to log (what happened); status = Active, Warm, Completed or Dropped only if clearly changed, else empty; detail = next step.\n- lead: a NEW company to approach that is not in the list; text = company; detail = context.\n- reading: an article or link to read.\n- Resolve relative dates against today. Never invent anything. Skip chit-chat. Be complete: every action, decision, date and lead update in the transcript.');
+  L.push('===ITEMS===\nA valid JSON array. Each item: {"type":"task|leadupdate|lead","text":"...","owner":"","due":"YYYY-MM-DD or empty","track":"","priority":"P1|P2|P3","note":"ONE short line of context from the meeting","detail":"","lead":"","status":"","waitingOn":""}');
+  L.push('Everything actionable is a TASK. There are no separate events, decisions or readings: a meeting, call or deadline that must happen = a task with its date as due; an agreed decision that needs follow-through = a task; something to read = a task. Purely informational decisions go into the note, not the items.\nRules for items:\n- task: text = short imperative headline; note = one line saying why / what was said in the meeting; owner only if explicit or unambiguous (one of the team); if we are waiting on someone outside the team, put their name in waitingOn and keep owner = our team member who follows up.\n- leadupdate: news about an EXISTING lead; lead = exact name from the list; text = one-line milestone to log (what happened); status = Active, Warm, Completed or Dropped only if clearly changed, else empty; detail = next step.\n- lead: a NEW company to approach that is not in the list; text = company; detail = context.\n- Resolve relative dates against today. Never invent anything. Skip chit-chat. Be complete: every action and lead update in the transcript.');
   L.push('');
   return L.join('\n');
 }
@@ -692,9 +680,10 @@ function capLoad(raw){
   const fixTrack=v=>{if(!v)return '';const n=normName(v);return trk.find(t=>normName(t)===n||normName(tn(t))===n)||''};
   const fixOwner=v=>team.find(t=>normName(t)===normName(v))||'';
   CAP.items=items.filter(i=>i&&String(i.text||i.lead||'').trim()).map(i=>{
-    const it={type:IT_TYPES.some(t=>t[0]===i.type)?i.type:'task',text:String(i.text||'').trim(),owner:fixOwner(i.owner),due:/^\d{4}-\d{2}-\d{2}$/.test(i.due||'')?i.due:'',track:fixTrack(i.track),
-      priority:['P1','P2','P3'].includes(i.priority)?i.priority:'P2',note:String(i.note||'').trim(),detail:String(i.detail||'').trim(),template:evTypes().includes(i.template)?i.template:'',
+    const it={type:['leadupdate','lead'].includes(i.type)?i.type:'task',text:String(i.text||'').trim(),owner:fixOwner(i.owner),due:/^\d{4}-\d{2}-\d{2}$/.test(i.due||'')?i.due:'',track:fixTrack(i.track),
+      priority:['P1','P2','P3'].includes(i.priority)?i.priority:'P2',note:String(i.note||'').trim(),detail:String(i.detail||'').trim(),
       lead:(findLead(i.lead)||{}).company||'',status:LST.includes(i.status)?i.status:'',waitingOn:String(i.waitingOn||'').trim(),res:null};
+    if(it.type==='task'&&!it.note&&it.detail){it.note=it.detail;it.detail=''}
     if(it.type==='leadupdate'&&!it.lead){it.type='lead';it.text=String(i.lead||i.text||'').trim();it.detail=it.detail||String(i.text||'').trim()}
     return it});
   if(!CAP.items.length)throw new Error('Claude found nothing to capture');
@@ -712,11 +701,9 @@ const fld=(i,k,label,val,kind,opts)=>{const at='data-i="'+i+'" data-k="'+k+'"';
 function cardFields(it,i){
   const c=S.d.config,team=['',...(c.team||[])],tracks=[['',''],...(c.tracks||[]).map(x=>[x.name,tn(x.name)])],leads=['',...leadNames()];
   if(it.type==='task')return fld(i,'text','Task',it.text)+fld(i,'track','Track',it.track,'select',tracks)+fld(i,'due','Due',it.due,'date')+fld(i,'owner','Owner',it.owner,'select',team)+fld(i,'note','Context from the meeting (one line)',it.note)+fld(i,'priority','Priority',it.priority,'select',['P1','P2','P3'])+fld(i,'waitingOn','Waiting on (only if the ball is with someone outside the team)',it.waitingOn);
-  if(it.type==='event')return fld(i,'text','Event / meeting',it.text)+fld(i,'due','Date',it.due,'date')+fld(i,'template','Type (decides which prep tasks are created)',it.template,'select',[['','Other - no prep tasks'],...evTypes().map(t=>[t,t])])+fld(i,'owner','Owner',it.owner,'select',team)+fld(i,'track','Track',it.track,'select',tracks)+fld(i,'detail','Notes',it.detail);
-  if(it.type==='decision')return fld(i,'text','Decision',it.text)+fld(i,'note','Why / context',it.note)+fld(i,'lead','Related lead',it.lead,'select',leads);
   if(it.type==='leadupdate')return fld(i,'lead','Lead / client',it.lead,'select',leads)+fld(i,'text','What happened (added as a dated milestone)',it.text)+fld(i,'status','Status after this',it.status,'select',[['','Keep current status'],...LST])+fld(i,'detail','Next step',it.detail);
   if(it.type==='lead')return fld(i,'text','Company',it.text)+fld(i,'detail','Context / next step',it.detail)+fld(i,'owner','Owner',it.owner,'select',team);
-  return fld(i,'text','Reading',it.text)+fld(i,'detail','Link / why',it.detail);
+  return '';
 }
 function renderCard(m){
   const i=CAP.step,n=CAP.items.length,it=CAP.items[i];
@@ -731,7 +718,6 @@ function renderCard(m){
   $('#rv_sk').onclick=()=>{it.res='skip';CAP.step=CAP.back2sum?CAP.items.length:CAP.step+1;render()};
   $('#rv_ok').onclick=()=>{
     if(!String(it.type==='leadupdate'?it.lead:it.text).trim())return toast(it.type==='leadupdate'?'Pick the lead':'Text is needed');
-    if(it.type==='event'&&!it.due)return toast('Pick the event date');
     if(it.type==='leadupdate'&&!it.text.trim())return toast('Say what happened');
     it.res='ok';CAP.step=CAP.back2sum?CAP.items.length:CAP.step+1;render()};
 }
@@ -743,21 +729,18 @@ function renderSummary(m){
   m.innerHTML='<h2 style="margin-top:0">All items reviewed</h2><p><b>'+ok.length+' confirmed</b>, '+(CAP.items.length-ok.length)+' skipped</p>'+
    '<div class="card">'+CAP.items.map((it,i)=>'<div data-go="'+i+'" style="display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line);cursor:pointer"><span class="pill" style="background:'+(it.res==='ok'?IT_COL[it.type]:'#8b96a1')+'">'+(IT_TYPES.find(t=>t[0]===it.type)||[0,it.type])[1].split(' ')[0]+'</span><span style="flex:1;'+(it.res==='ok'?'':'text-decoration:line-through;color:var(--mute)')+'">'+esc(it.type==='leadupdate'?it.lead+': '+it.text:it.text)+'</span></div>').join('')+'<p class="mute" style="margin:8px 0 0">Tap an item to change it.</p></div>'+
    '<h3>Meeting note for the Library</h3><label>Title</label><input id="sm_t" value="'+esc(CAP.name)+'"><div class="row"><div><label>Lead / client</label>'+sel('sm_l',leads,CAP.lead)+'</div><div><label>Track</label>'+sel('sm_k',tracks,CAP.track)+'</div></div>'+
-   (CAP.note?'<label><input type="checkbox" id="sm_n" checked style="width:auto"> Save the summary, key points and decisions to Library > Meeting notes</label>':'<p class="mute">Claude sent no note, so only the confirmed items are saved.</p>')+
+   (CAP.note?'<label><input type="checkbox" id="sm_n" checked style="width:auto"> Save the summary and key points to Library > Meeting notes</label>':'<p class="mute">Claude sent no note, so only the confirmed items are saved.</p>')+
    '<p class="mute">The raw transcript is not stored.</p><button class="b big" id="rv_push">Push '+ok.length+' item'+(ok.length===1?'':'s')+(CAP.note?' + note':'')+'</button><button class="g" id="rv_bk">← Previous item</button>';
   m.querySelectorAll('[data-go]').forEach(e=>e.onclick=()=>{CAP.back2sum=true;CAP.step=+e.dataset.go;render()});
   $('#rv_bk').onclick=()=>{CAP.back2sum=false;CAP.step=CAP.items.length-1;render()};
   $('#rv_push').onclick=pushItems;
 }
-function noteMd(title,date,lead,track,ok,tasks,events){
+function noteMd(title,date,lead,track,ok,tasks){
   const by=t=>ok.filter(i=>i.type===t),L=['# '+title,'','_'+date+' · captured by '+S.conn.me+(lead?' · Lead: '+lead:'')+(track?' · Track: '+tn(track):'')+'_',''];
   if(CAP.note)L.push(CAP.note,'');
-  if(by('decision').length)L.push('## Decisions',...by('decision').map(i=>'- **'+i.text+'**'+(i.note?' - '+i.note:'')),'');
   if(tasks.length)L.push('## Actions',...tasks.map(t=>'- '+t.title+' ('+(t.waitingOn?'waiting on '+t.waitingOn+', follow-up ':'')+(t.owner||'unassigned')+(t.due?', due '+t.due:'')+')'+((t.log[0]||{}).t?' - '+t.log[0].t:'')),'');
-  if(events.length)L.push('## Events',...events.map(e=>'- '+e.date+': '+e.event+(e.template?' ['+e.template+']':'')),'');
   if(by('leadupdate').length)L.push('## Pipeline updates',...by('leadupdate').map(i=>'- **'+i.lead+'**: '+i.text+(i.status?' (now '+i.status+')':'')+(i.detail?'. Next: '+i.detail:'')),'');
   if(by('lead').length)L.push('## New leads',...by('lead').map(i=>'- '+i.text+(i.detail?' - '+i.detail:'')),'');
-  if(by('reading').length)L.push('## To read',...by('reading').map(i=>'- '+i.text+(i.detail?' - '+i.detail:'')),'');
   return L.join('\n');
 }
 let pushing=false;
@@ -768,13 +751,10 @@ function pushItems(){
   const path='notes/'+date+'_'+slug(title)+'.md';
   const tasks=ok.filter(i=>i.type==='task').map(i=>{const t=mk({title:i.text,owner:i.owner,due:i.due,pri:i.priority,track:i.track||track,source:src});if(!t.owner)t.owner=autoOwner(t);
     if(i.note)t.log.push({at:td,by:me,k:'note',t:i.note});if(i.waitingOn){t.status='waiting';t.waitingOn=i.waitingOn;t.waitSince=td}return t});
-  const events=ok.filter(i=>i.type==='event').map(i=>({id:uid(),date:i.due,event:i.text,template:i.template||'',owner:i.owner||me,track:i.track||track,notes:i.detail||i.note||'',meeting:path}))
-    .filter(e=>e.date&&!(S.d.events||[]).some(x=>x.date===e.date&&String(x.event).toLowerCase()===String(e.event).toLowerCase()));
-  const decs=ok.filter(i=>i.type==='decision'||i.type==='reading').map(i=>({id:uid(),date:td,type:i.type,text:i.text,owner:i.owner||'',source:src,detail:i.note||i.detail||'',lead:i.lead||(i.type==='decision'?lead:'')||'',meeting:path}));
   const updates=ok.filter(i=>i.type==='leadupdate'),newLeads=ok.filter(i=>i.type==='lead').map(i=>({id:uid(),company:i.text,status:'Warm',stage:'Lead',firstContact:td,onboarded:'',milestones:mdate(td)+': Added from "'+title+'"'+(i.detail?' - '+i.detail:''),contact:'',owner:i.owner||'',next:i.detail||'',last:td,nextDate:'',retainer:'',prob:''}));
-  const entry={id:path,path,title,date,lead:lead||'',track:track||'',by:me,counts:{tasks:tasks.length,events:events.length,decisions:decs.filter(d=>d.type==='decision').length,updates:updates.length}};
-  const md=saveNote||ok.length?noteMd(title,date,lead,track,ok,tasks,events):'';
-  const summary=[tasks.length&&tasks.length+' task'+(tasks.length>1?'s':''),events.length&&events.length+' event'+(events.length>1?'s':''),updates.length&&updates.length+' lead update'+(updates.length>1?'s':''),newLeads.length&&newLeads.length+' new lead'+(newLeads.length>1?'s':''),decs.length&&decs.length+' decision/reading',saveNote&&'meeting note'].filter(Boolean).join(', ')||'nothing';
+  const entry={id:path,path,title,date,lead:lead||'',track:track||'',by:me,counts:{tasks:tasks.length,updates:updates.length}};
+  const md=saveNote||ok.length?noteMd(title,date,lead,track,ok,tasks):'';
+  const summary=[tasks.length&&tasks.length+' task'+(tasks.length>1?'s':''),updates.length&&updates.length+' lead update'+(updates.length>1?'s':''),newLeads.length&&newLeads.length+' new lead'+(newLeads.length>1?'s':''),saveNote&&'meeting note'].filter(Boolean).join(', ')||'nothing';
   // leave the review screen immediately, so there is no button left to press twice
   CAP=capNew();S.tab='tasks';S.filter='all';S.view='open';render();
   (async()=>{
@@ -786,13 +766,11 @@ function pushItems(){
       if(saveNote)await saveText(path,md,'meeting note: '+title);
       if(saveNote)await optimistic('meetings',l=>l.filter(x=>x.id!==entry.id).concat(entry),'meeting index');
       if(tasks.length)await optimistic('tasks',l=>addOnce(l,tasks),'meeting tasks: '+title);
-      if(events.length){await optimistic('events',l=>addOnce(l,events),'events from '+title);await materialize()}
       if(updates.length||newLeads.length)await optimistic('pipeline',l=>{
         updates.forEach(u=>{const z=l.find(y=>normName(y.company)===normName(u.lead));if(!z)return;
           const line=mdate(date)+': '+u.text;if(!String(z.milestones||'').includes(line))z.milestones=(z.milestones?z.milestones+'\n':'')+line;
           z.last=td;if(u.status)z.status=u.status;if(u.detail)z.next=u.detail});
         return addOnce(l,newLeads)},'pipeline from '+title);
-      if(decs.length)await optimistic('decisions',l=>addOnce(l,decs),'decisions from '+title);
       if(driveId){const rec={id:driveId,name:title,by:me,at:td};await optimistic('imported',l=>l.some(x=>x.id===rec.id)?false:l.concat(rec),'imported '+title)}
       toast('Pushed: '+summary);
     }catch(e){toast(e.message)}
@@ -825,8 +803,8 @@ function renderPipe(m){
          +(x.next?'<div><span class="pk">Next</span> '+esc(x.next)+'</div>':'')
          +(x.milestones?'<div class="pk" style="margin-top:8px">Milestones</div><div class="pms">'+esc(x.milestones)+'</div>':'')
          +(x.contact?'<div class="pk" style="margin-top:8px">Contact</div><div class="pms">'+linkTel(x.contact)+'</div>':'')
-         +(()=>{const nm=normName(x.company),ms=(S.d.meetings||[]).filter(z=>normName(z.lead)===nm).sort((a,b)=>String(b.date).localeCompare(String(a.date))),ds=(S.d.decisions||[]).filter(z=>z.type==='decision'&&normName(z.lead)===nm).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
-         return (ms.length?'<div class="pk" style="margin-top:8px">Meetings</div>'+ms.map(z=>'<div><a href="#" class="mlink" data-path="'+esc(z.path)+'" style="color:var(--brand);font-weight:600">'+esc(z.title)+'</a> <span class="mute">'+fyr(z.date)+'</span></div>').join(''):'')+(ds.length?'<div class="pk" style="margin-top:8px">Decisions</div>'+ds.map(z=>'<div class="pms">• '+esc(z.text)+' <span class="mute">('+fyr(z.date)+')</span></div>').join(''):'')})()
+         +(()=>{const nm=normName(x.company),ms=(S.d.meetings||[]).filter(z=>normName(z.lead)===nm).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+         return (ms.length?'<div class="pk" style="margin-top:8px">Meetings</div>'+ms.map(z=>'<div><a href="#" class="mlink" data-path="'+esc(z.path)+'" style="color:var(--brand);font-weight:600">'+esc(z.title)+'</a> <span class="mute">'+fyr(z.date)+'</span></div>').join(''):'')})()
          +'<div><button class="g s" data-a="edit">Edit</button><button class="g s" data-a="touch">Touched today</button><button class="g s" data-a="brief">Prep research</button></div></div>':'')
        +'</div>'}).join('')||'<p class="mute" style="padding:14px">No leads here yet.</p>')+'</div>';
   $('#pa').onclick=()=>editLead(null);
@@ -868,7 +846,7 @@ function renderSettings(m){
     '<h2>Google Drive (this device only)</h2><label>Google OAuth client ID</label><input id="gc_i" value="'+esc(LS.get('gcid',''))+'" placeholder="123...apps.googleusercontent.com">'+
     '<label>Meeting-notes folder ID(s), comma separated (from the folder URL)</label><input id="gc_f" value="'+esc(LS.get('gfolder',''))+'">'+
     '<button class="g" id="gc_s">Save Drive settings</button>'+
-    '<h2>Advanced config (JSON)</h2><p class="mute">Tracks, recurring tasks, prep templates, Claude prompt templates, revenue.</p><textarea id="j_c" style="min-height:260px;font:12px Poppins,system-ui,sans-serif">'+esc(JSON.stringify(S.d.config,null,1))+'</textarea><button class="g" id="j_s">Save JSON</button>':'');
+    '<h2>Advanced config (JSON)</h2><p class="mute">Tracks, recurring tasks, Claude prompt templates.</p><textarea id="j_c" style="min-height:260px;font:12px Poppins,system-ui,sans-serif">'+esc(JSON.stringify(S.d.config,null,1))+'</textarea><button class="g" id="j_s">Save JSON</button>':'');
   $('#s_s').onclick=()=>{if(!$('#s_m').value)return toast('Select your name');S.conn={repo:$('#s_r').value.trim(),token:$('#s_t').value.trim(),me:$('#s_m').value};LS.set('conn',S.conn);S.ready=false;S.err='';S.tab='today';render();loadAll()};
   if(S.ready){
     $('#g_s').onclick=async()=>{try{await mutate('config',c=>{c.groupLink=$('#g_l').value.trim();c.team=$('#g_t').value.split(',').map(s=>s.trim()).filter(Boolean);c.emailTo=$('#g_e').value.split(',').map(s=>s.trim()).filter(Boolean);c.appUrl=$('#g_u').value.trim();return c},'team settings');toast('Saved')}catch(e){toast(e.message)}};

@@ -5,7 +5,7 @@
 #
 # What it does: any transcript dropped into  intake/  (by the app's Upload button, a recorder script,
 # or a poller) is de-duplicated (3 partners recording one call = 1 meeting), turned into proposed
-# tasks / events / lead updates / decisions / meeting note by Claude, and filed in data/inbox.json
+# tasks / lead updates / meeting note by Claude, and filed in data/inbox.json
 # for approval in the app. Raw transcripts are deleted afterwards.
 name: Process transcripts
 on:
