@@ -4,7 +4,7 @@ const fs = require('fs'), path = require('path');
 const core = require('../core.js');
 const root = process.argv[2] || '.';
 const rd = (n, def) => { try { return JSON.parse(fs.readFileSync(path.join(root, 'data', n + '.json'), 'utf8')); } catch (e) { return def; } };
-const d = { config: rd('config', {}), tasks: rd('tasks', []), events: rd('events', []), pipeline: rd('pipeline', []), decisions: rd('decisions', []) };
+const d = { config: rd('config', {}), tasks: rd('tasks', []), events: rd('events', []), pipeline: rd('pipeline', []), decisions: rd('decisions', []), inbox: rd('inbox', []) };
 
 const have = new Set(d.tasks.map(t => t.key).filter(Boolean));
 const adds = core.computeAdds(d).filter(a => !have.has(a.key));

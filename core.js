@@ -71,6 +71,8 @@ function briefData(d,now){
   pipe.forEach(p=>{const lt=pd(p.last);if(!lt||diff(lt,td)>=(c.staleDays||7))f.push(p.company+': no touch '+(lt?diff(lt,td)+'d':'ever')+'. Next: '+(p.next||'define next step')+' ('+(p.owner||'no owner')+')')});
   const touched=(d.pipeline||[]).filter(p=>pd(p.last)&&pd(p.last)>=wk).length;
   if(touched<(c.outreachPerWeek||5))f.push('Only '+touched+' outreach touches in 7 days (goal '+(c.outreachPerWeek||5)+')');
+  const waitingMtg=(d.inbox||[]).filter(e=>e.status==='pending').length;
+  if(waitingMtg)f.push(waitingMtg+' meeting'+(waitingMtg>1?'s':'')+' waiting for review in the app (Capture tab) - approve the tasks and updates');
   const quiet=[];
   (c.tracks||[]).filter(t=>t.active!==false).forEach(t=>{const ds=all.filter(x=>x.track===t.name).map(x=>Math.max(pd(x.doneOn)||0,pd(x.created)||0));const last=ds.length?Math.max(...ds):0;if(!last||diff(new Date(last),td)>(c.quietDays||7))quiet.push(t.name.replace(/^T\d+\s+/,'')+' ('+t.owner+')')});
   if(quiet.length)f.push({t:'No activity in '+(c.quietDays||7)+'+ days:',sub:quiet});
@@ -93,7 +95,7 @@ function buildBrief(d,now){
   b.flags.forEach(x=>{if(typeof x==='string')L.push('- '+x);else{L.push('- '+x.t);x.sub.forEach(s=>L.push('   - '+s))}});
   return L.join('\n');
 }
-const CORE_V=5;
+const CORE_V=6;
 const C={CORE_V,pad,ymd,pd,today,addD,diff,fshort,fday,uid,DOW,computeAdds,mk,byDue,isOpen,band,lastNote,statusText,dueText,briefData,buildBrief};
 if(typeof module!=='undefined'&&module.exports)module.exports=C;else Object.assign(root,C);
 })(typeof window!=='undefined'?window:globalThis);

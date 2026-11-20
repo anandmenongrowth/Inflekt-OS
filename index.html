@@ -102,10 +102,10 @@ label{font-size:14px;font-weight:600;color:var(--mute)}
 <div id="modal"><div class="in" id="mbody"></div></div>
 <div class="toast" id="toast"></div>
 
-<script src="core.js?v=5"></script>
+<script src="core.js?v=6"></script>
 <script>
 /* ============ tiny utils ============ */
-const coreOK=(typeof CORE_V!=='undefined'&&CORE_V>=5);
+const coreOK=(typeof CORE_V!=='undefined'&&CORE_V>=6);
 if(!coreOK&&!sessionStorage.getItem('rl')){sessionStorage.setItem('rl','1');(async()=>{try{for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister();for(const k of await caches.keys())await caches.delete(k)}catch(e){}location.reload()})()}
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -118,7 +118,7 @@ function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';cl
 /* ============ state + GitHub sync ============ */
 const S={conn:LS.get('conn',{repo:'Inflekt-Growth/inflekt-os-data',token:'',me:''}),d:{},tab:'today',filter:'me',ready:false};
 if(S.conn.repo==='anandmenongrowth/inflekt-os-data'){S.conn.repo='Inflekt-Growth/inflekt-os-data';LS.set('conn',S.conn)}   // repo moved to the organisation
-const FILES={config:{},tasks:[],events:[],pipeline:[],decisions:[],imported:[],meetings:[]};
+const FILES={config:{},tasks:[],events:[],pipeline:[],decisions:[],imported:[],meetings:[],inbox:[],transcripts:[]};
 const API='https://api.github.com/repos/';
 async function gh(path,opt={}){
   return fetch(API+S.conn.repo+path,{cache:'no-store',...opt,headers:{Authorization:'Bearer '+S.conn.token,Accept:'application/vnd.github+json',...(opt.headers||{})}});
@@ -157,7 +157,7 @@ async function syncData(){
     let changed=false;
     for(const k of Object.keys(FILES)){const r=await rd('data/'+k+'.json',FILES[k]);if(!r.same&&JSON.stringify(r.json)!==JSON.stringify(S.d[k])){S.d[k]=r.json;changed=true}}
     $('#sync').textContent='synced '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-    if(changed){if($('#modal').style.display==='flex')S.dirty=true;else if(S.tab!=='set'&&S.tab!=='capture')render()}
+    if(changed){if($('#modal').style.display==='flex')S.dirty=true;else if(S.tab==='capture'){$('#nav').innerHTML=navHtml();refreshInbox()}else if(S.tab!=='set')render()}
   }catch(e){}
 }
 setInterval(syncData,45000);
@@ -325,13 +325,14 @@ const TABS=[['today','Today'],['tasks','Tasks'],['capture','Capture'],['outputs'
 const tn=s=>String(s||'').replace(/^T\d+\s+/,'');   // display name of a track (no T1/T2 prefix)
 const DEFAULT_TEAM=['Anand','Vishnu','Abhishek'];
 S.stack=[];
+const navHtml=()=>TABS.map(t=>'<button class="'+(S.tab===t[0]?'on':'')+'" data-tab="'+t[0]+'">'+t[1]+(t[0]==='capture'&&inboxPending().length?' <span class="cnt">'+inboxPending().length+'</span>':'')+'</button>').join('');
 function render(){
   if(S.lastTab!==undefined&&S.tab!==S.lastTab&&!S.popping){S.stack.push(S.lastTab);if(S.stack.length>20)S.stack.shift()}
   if(S.lastTab!==undefined&&S.tab!==S.lastTab){window.scrollTo(0,0);requestAnimationFrame(()=>window.scrollTo(0,0))}   // a new tab always starts at the top
   S.lastTab=S.tab;S.popping=false;
   const conn=S.conn.repo&&S.conn.token,m=$('#main');
   $('#nav').style.display=conn?'flex':'none';
-  $('#nav').innerHTML=TABS.map(t=>'<button class="'+(S.tab===t[0]?'on':'')+'" data-tab="'+t[0]+'">'+t[1]+'</button>').join('');
+  $('#nav').innerHTML=navHtml();
   if(!conn){S.tab='set';return renderSettings(m)}
   if(S.tab==='set')return renderSettings(m);
   if(!S.ready){
@@ -595,12 +596,64 @@ function openCapture(){
   copy(text);window.open('https://claude.ai/new?q='+encodeURIComponent(head+'TRANSCRIPT: (paste it right below this line, then send)\n---\n'),'_blank');
   CAP.sent='paste';
 }
+/* ============ Inbox: meetings processed automatically (transcript -> Claude -> proposals) ============ */
+const inboxPending=()=>(S.d.inbox||[]).filter(e=>e.status==='pending');
+function peekInbox(e){
+  if(e._p)return e._p;
+  const p={title:'',date:'',n:0};
+  try{const mm=String(e.raw).split(/===(META|NOTE|ITEMS)===/),sec={};for(let i=1;i<mm.length;i+=2)sec[mm[i]]=mm[i+1]||'';
+    if(sec.META){const x=sec.META.indexOf('{'),y=sec.META.lastIndexOf('}'),j=JSON.parse(sec.META.slice(x,y+1));p.title=j.title||'';p.date=j.date||''}
+    const js=sec.ITEMS||'',a=js.indexOf('['),b=js.lastIndexOf(']');p.n=JSON.parse(js.slice(a,b+1)).length}catch(er){}
+  Object.defineProperty(e,'_p',{value:p,enumerable:false});return p;
+}
+function inboxSection(){
+  const pend=inboxPending(),proc=(S.d.transcripts||[]).filter(t=>t.status==='queued'||t.status==='failed');
+  return '<div id="ibx"><div class="evh" style="border-color:var(--brand);margin-top:0"><h2 style="color:var(--brand)">Inbox</h2>'+(pend.length?'<span class="cnt" style="background:var(--brand)">'+pend.length+'</span>':'')+'</div>'+
+   (pend.length?pend.map(e=>{const p=peekInbox(e),t=e.title||p.title||'Meeting',d=p.date||(e.start||'').slice(0,10);
+     return '<div class="card rvev" data-ib="'+esc(e.id)+'"><b>'+esc(t)+'</b><div class="sub">'+[d?fyr(d):'',p.n+' item'+(p.n===1?'':'s')+' to review',e.recorder?'recorded by '+esc(e.recorder):''].filter(Boolean).join(' · ')+'</div><button class="b s" data-ibr style="margin-top:8px">Review</button><button class="g s" data-ibd>Dismiss</button></div>'}).join('')
+    :'<p class="mute" style="margin:6px 0">No meetings waiting for review.</p>')+
+   proc.map(t=>t.status==='queued'?'<div class="sub">Processing: '+esc(t.title||'transcript')+'</div>':'<div class="sub" style="color:var(--bad)">Failed: '+esc(t.title||'transcript')+' - '+esc(String(t.error||'').slice(0,120))+'</div>').join('')+'</div>';
+}
+function bindInbox(m){
+  m.querySelectorAll('[data-ibr]').forEach(b=>b.onclick=()=>reviewInbox(b.closest('[data-ib]').dataset.ib));
+  m.querySelectorAll('[data-ibd]').forEach(b=>{let armed=false;b.onclick=()=>{
+    if(!armed){armed=true;b.textContent='Tap again to dismiss';setTimeout(()=>{armed=false;if(b.isConnected)b.textContent='Dismiss'},4000);return}
+    const id=b.closest('[data-ib]').dataset.ib;
+    once(b,async()=>{await optimistic('inbox',l=>{const x=l.find(y=>y.id===id);if(!x||x.status!=='pending')return false;x.status='dismissed';x.by=S.conn.me;return l},'inbox: dismissed')})}});
+}
+function refreshInbox(){
+  const el=$('#ibx');if(!el||S.tab!=='capture'||CAP.items)return;
+  const t=document.createElement('div');t.innerHTML=inboxSection();el.replaceWith(t.firstChild);bindInbox($('#main'));
+}
+function reviewInbox(id){
+  const e=(S.d.inbox||[]).find(x=>x.id===id);if(!e||e.status!=='pending')return toast('That meeting was already handled');
+  const p=peekInbox(e);
+  CAP=capNew({name:e.title||p.title||'',lead:(findLead(e.lead)||{}).company||'',track:e.track||'',date:(e.start||'').slice(0,10),inboxId:id});
+  try{capLoad(e.raw)}catch(er){CAP=capNew();return toast(er.message||'Could not read this meeting')}
+  render();
+}
+function uploadSection(){
+  const leads=['',...leadNames()];
+  return '<h2>Add a transcript</h2><p class="mute" style="margin-top:-4px">Upload a transcript file or paste the text. It is processed automatically (about 5-10 minutes) and appears in the Inbox above. If a partner adds the same call, it is merged, not duplicated.</p>'+
+   '<label>Meeting name (optional)</label><input id="up_n"><div class="row"><div><label>Start time</label><input type="datetime-local" id="up_d"></div><div><label>Lead / client (optional)</label><select id="up_l">'+leads.map(o=>'<option>'+esc(o)+'</option>').join('')+'</select></div></div>'+
+   '<input type="file" id="up_f" accept=".txt,.md,.vtt,.srt,text/plain" style="margin-bottom:6px"><label>or paste the transcript</label><textarea id="up_t" style="min-height:90px"></textarea><button class="b" id="up_go">Send for processing</button>';
+}
+function bindUpload(m){
+  $('#up_f').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{$('#up_t').value=r.result;if(!$('#up_n').value)$('#up_n').value=f.name.replace(/\.[^.]+$/,'')};r.readAsText(f)};
+  $('#up_go').onclick=()=>once($('#up_go'),async()=>{
+    const text=$('#up_t').value.trim();if(!text)return toast('Add the transcript first');
+    const name=$('#up_n').value.trim()||'Meeting',d=$('#up_d').value||(ymd(today())+'T'+new Date().toTimeString().slice(0,5)),lead=$('#up_l').value;
+    const path='intake/'+d.replace(/[-:]/g,'').replace('T','-')+'_'+slug(name)+'_'+slug(S.conn.me)+'.txt';
+    const body='Title: '+name+'\nStart: '+d+'\nRecorder: '+S.conn.me+(lead?'\nLead: '+lead:'')+'\n\n'+text;
+    try{await saveText(path,body,'transcript: '+name);toast('Sent. It will appear in the Inbox in a few minutes');$('#up_t').value='';$('#up_n').value=''}catch(e){toast(e.message)}});
+}
+
 function renderCapture(m){
   if(CAP.items)return CAP.step>=CAP.items.length?renderSummary(m):renderCard(m);
   const leads=['',...leadNames()],tracks=[['',''],...(S.d.config.tracks||[]).map(x=>[x.name,tn(x.name)])];
   const opt=(arr,v)=>arr.map(o=>{const a=Array.isArray(o)?o[0]:o,t=Array.isArray(o)?o[1]:o;return '<option value="'+esc(a)+'"'+(a===v?' selected':'')+'>'+esc(t||'-')+'</option>'}).join('');
   if(!CAP.date)CAP.date=ymd(today());
-  m.innerHTML='<h2 style="margin-top:0">1. Meeting transcript</h2>'+
+  m.innerHTML=inboxSection()+uploadSection()+'<details id="manual" style="margin-top:18px"'+((CAP.text||CAP.sent)?' open':'')+'><summary style="font-weight:600;cursor:pointer;color:var(--mute)">Manual route: extract in Claude chat instead</summary><h2>1. Meeting transcript</h2>'+
    '<label>Meeting name (e.g. Wooden Street intro call)</label><input id="cp_n" value="'+esc(CAP.name)+'">'+
    '<div class="row"><div><label>Date</label><input type="date" id="cp_d" value="'+esc(CAP.date)+'"></div><div><label>Lead / client</label><select id="cp_l">'+opt(leads,CAP.lead)+'</select></div></div>'+
    '<label>Track (optional)</label><select id="cp_k">'+opt(tracks,CAP.track)+'</select>'+
@@ -609,7 +662,8 @@ function renderCapture(m){
    '<button class="b big" id="cp_go">Open in Claude to extract</button>'+
    (CAP.sent==='paste'?'<div class="card rvev"><b>Transcript copied.</b> In the Claude tab: click at the end of the message box, paste (Ctrl/Cmd+V) and send. <button class="g s" id="cp_cp">Copy transcript again</button></div>':'')+
    (CAP.sent==='inline'?'<p class="mute">Claude opened with the transcript included. Just send it.</p>':'')+
-   '<h2>2. Paste Claude\'s reply</h2><p class="mute" style="margin-top:-4px">Tap the copy icon on Claude\'s code block, then paste here. One paste, nothing else.</p><textarea id="cp_j" style="min-height:110px" placeholder="===META=== ... ===NOTE=== ... ===ITEMS=== ..."></textarea><button class="b big" id="cp_pv">Review item by item</button>';
+   '<h2>2. Paste Claude\'s reply</h2><p class="mute" style="margin-top:-4px">Tap the copy icon on Claude\'s code block, then paste here. One paste, nothing else.</p><textarea id="cp_j" style="min-height:110px" placeholder="===META=== ... ===NOTE=== ... ===ITEMS=== ..."></textarea><button class="b big" id="cp_pv">Review item by item</button></details>';
+  bindInbox(m);bindUpload(m);
   const keep=()=>{CAP.name=$('#cp_n').value;CAP.text=$('#cp_t').value;CAP.date=$('#cp_d').value;CAP.lead=$('#cp_l').value;CAP.track=$('#cp_k').value};
   $('#cp_f').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{$('#cp_t').value=r.result;if(!$('#cp_n').value)$('#cp_n').value=f.name.replace(/\.[^.]+$/,'')};r.readAsText(f)};
   $('#cp_dr').onclick=()=>{keep();driveModal()};
@@ -703,7 +757,7 @@ let pushing=false;
 function pushItems(){
   if(pushing||!CAP.items)return;pushing=true;
   const title=($('#sm_t')?$('#sm_t').value:CAP.name).trim()||'Meeting',lead=$('#sm_l')?$('#sm_l').value:CAP.lead,track=$('#sm_k')?$('#sm_k').value:CAP.track,saveNote=!!CAP.note&&($('#sm_n')?$('#sm_n').checked:true);
-  const date=CAP.date||ymd(today()),me=S.conn.me,src='Meeting: '+title,ok=CAP.items.filter(i=>i.res==='ok'),driveId=CAP.driveId,td=ymd(today());
+  const inboxId=CAP.inboxId,date=CAP.date||ymd(today()),me=S.conn.me,src='Meeting: '+title,ok=CAP.items.filter(i=>i.res==='ok'),driveId=CAP.driveId,td=ymd(today());
   const path='notes/'+date+'_'+slug(title)+'.md';
   const tasks=ok.filter(i=>i.type==='task').map(i=>{const t=mk({title:i.text,owner:i.owner,due:i.due,pri:i.priority,track:i.track||track,source:src});if(!t.owner)t.owner=autoOwner(t);
     if(i.note)t.log.push({at:td,by:me,k:'note',t:i.note});if(i.waitingOn){t.status='waiting';t.waitingOn=i.waitingOn;t.waitSince=td}return t});
@@ -718,6 +772,10 @@ function pushItems(){
   CAP=capNew();S.tab='tasks';S.filter='all';S.view='open';render();
   (async()=>{
     try{
+      if(inboxId){let taken=null;
+        await mutate('inbox',l=>{const x=l.find(y=>y.id===inboxId);if(!x)return false;if(x.status!=='pending'){taken=x;return false}x.status='done';x.by=me;x.doneAt=td;return l},'inbox: approved '+title);
+        if(taken){toast('Already handled by '+(taken.by||'a partner')+' - nothing pushed');return}
+        render()}
       if(saveNote)await saveText(path,md,'meeting note: '+title);
       if(saveNote)await optimistic('meetings',l=>l.filter(x=>x.id!==entry.id).concat(entry),'meeting index');
       if(tasks.length)await optimistic('tasks',l=>addOnce(l,tasks),'meeting tasks: '+title);
