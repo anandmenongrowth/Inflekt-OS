@@ -472,13 +472,20 @@ function renderTasks(m){
   const tracks=(c.tracks||[]).map(x=>x.name);
   m.innerHTML='<div class="chips">'+[['me','Me'],...team.map(p=>[p,p]),['all','All']].map(x=>'<span class="chip '+(f===x[0]?'on':'')+'" data-f="'+x[0]+'">'+esc(x[1])+'</span>').join('')+'</div>'+
    '<div class="chips">'+Object.keys(VIEWS).map(k=>'<span class="chip '+(view===k?'on':'')+'" data-v="'+k+'">'+VIEWS[k][0]+'</span>').join('')+'</div>'+
-   '<div class="ctl"><select id="trk"><option value="">All tracks</option>'+tracks.map(x=>'<option value="'+esc(x)+'"'+(x===tr?' selected':'')+'>'+esc(tn(x))+'</option>').join('')+'</select>'+
+   '<div class="ctl"><select id="trk"><option value="">All tracks</option>'+tracks.map(x=>'<option value="'+esc(x)+'"'+(x===tr?' selected':'')+'>'+esc(tn(x))+'</option>').join('')+'<option value="__new">+ Add new track…</option></select>'+
    '<button class="b" id="add">+ Task</button><button class="b" id="addev" style="background:#6b5bd2">+ Event</button></div>'+eventsHtml(view,tr)+(view==='open'||view==='all'?'<div class="evh" style="border-color:var(--brand)"><h2 style="color:var(--brand)">Tasks</h2></div>':'')+body;
   m.querySelectorAll('[data-f]').forEach(e=>e.onclick=()=>{S.filter=e.dataset.f;render()});
   m.querySelectorAll('[data-v]').forEach(e=>e.onclick=()=>{S.view=e.dataset.v;render()});
-  $('#trk').onchange=e=>{S.trackF=e.target.value;render()};
+  $('#trk').onchange=e=>{if(e.target.value==='__new'){render();return addTrack()}S.trackF=e.target.value;render()};
   $('#add').onclick=()=>editTask(null);$('#addev').onclick=()=>editEvent(null);
   m.querySelectorAll('[data-ea]').forEach(b=>b.onclick=()=>editEvent((S.d.events||[]).find(x=>x.id===b.closest('[data-eid]').dataset.eid)));bindTasks(m);
+}
+function addTrack(){
+  form('New track',[{k:'name',label:'Track name'},{k:'owner',label:'Owner',type:'select',opts:S.d.config.team,val:S.conn.me}],async o=>{
+    const name=o.name.trim().replace(/^T\d+\s+/,'');if(!name)throw new Error('Track name needed');
+    if((S.d.config.tracks||[]).some(t=>normName(t.name)===normName(name)))throw new Error('That track already exists');
+    optimistic('config',c=>{c.tracks=(c.tracks||[]).concat({name,owner:o.owner,active:true});return c},'new track: '+name);
+    toast('Track added')},'Add track');
 }
 function editTask(t){
   const c=S.d.config,tpls=['(none)',...(c.prompts||[]).map(p=>p.name)];
