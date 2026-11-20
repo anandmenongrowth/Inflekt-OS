@@ -541,10 +541,10 @@ async function viewFile(path){
   }catch(e){modal('<p>Could not load: '+esc(e.message)+'</p><button class="g" onclick="closeModal()">Close</button>')}
 }
 async function renderLibrary(m){
-  m.innerHTML='<div><span class="chip '+(S.lib!=='notes'?'on':'')+'" data-l="outputs">Claude outputs</span><span class="chip '+(S.lib==='notes'?'on':'')+'" data-l="notes">Meeting notes</span></div><p class="mute">Loading…</p>';
+  m.innerHTML='<div><span class="chip '+(S.lib!=='outputs'?'on':'')+'" data-l="notes">Meeting notes</span><span class="chip '+(S.lib==='outputs'?'on':'')+'" data-l="outputs">Claude outputs</span></div><p class="mute">Loading…</p>';
   m.querySelectorAll('[data-l]').forEach(e=>e.onclick=()=>{S.lib=e.dataset.l;render()});
   try{
-    const dir=S.lib==='notes'?'notes':'outputs',files=await listDir(dir);
+    const dir=S.lib==='outputs'?'outputs':'notes',files=await listDir(dir);
     const card=f=>{const p=dir+'/'+f,mt=(S.d.meetings||[]).find(x=>x.path===p);
       const title=mt?mt.title:f.replace(/\.md$/,'').replace(/^(\d{4}-\d{2}-\d{2})_/,'$1 · ').replace(/-/g,' ').replace(/(\d{4}) (\d{2}) (\d{2})/,'$1-$2-$3');
       const tags=mt?[mt.date?fyr(mt.date):'',mt.lead,mt.track?tn(mt.track):''].filter(Boolean).map(esc).join(' · '):'';
