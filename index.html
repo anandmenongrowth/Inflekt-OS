@@ -714,12 +714,12 @@ function renderCard(m){
    '<button class="g" id="rv_bk">← '+(i?'Previous item':'Back to transcript')+'</button>';
   m.querySelectorAll('[data-i]').forEach(e=>{const h=()=>{it[e.dataset.k]=e.value};e.oninput=h;e.onchange=h});
   $('#ty').onchange=e=>{it.type=e.target.value;render()};
-  $('#rv_bk').onclick=capBack;
-  $('#rv_sk').onclick=()=>{it.res='skip';CAP.step=CAP.back2sum?CAP.items.length:CAP.step+1;render()};
+  $('#rv_bk').onclick=()=>{capBack();window.scrollTo(0,0)};
+  $('#rv_sk').onclick=()=>{it.res='skip';CAP.step=CAP.back2sum?CAP.items.length:CAP.step+1;render();window.scrollTo(0,0)};
   $('#rv_ok').onclick=()=>{
     if(!String(it.type==='leadupdate'?it.lead:it.text).trim())return toast(it.type==='leadupdate'?'Pick the lead':'Text is needed');
     if(it.type==='leadupdate'&&!it.text.trim())return toast('Say what happened');
-    it.res='ok';CAP.step=CAP.back2sum?CAP.items.length:CAP.step+1;render()};
+    it.res='ok';CAP.step=CAP.back2sum?CAP.items.length:CAP.step+1;render();window.scrollTo(0,0)};
 }
 function renderSummary(m){
   CAP.back2sum=false;
@@ -731,8 +731,8 @@ function renderSummary(m){
    '<h3>Meeting note for the Library</h3><label>Title</label><input id="sm_t" value="'+esc(CAP.name)+'"><div class="row"><div><label>Lead / client</label>'+sel('sm_l',leads,CAP.lead)+'</div><div><label>Track</label>'+sel('sm_k',tracks,CAP.track)+'</div></div>'+
    (CAP.note?'<label><input type="checkbox" id="sm_n" checked style="width:auto"> Save the summary and key points to Library > Meeting notes</label>':'<p class="mute">Claude sent no note, so only the confirmed items are saved.</p>')+
    '<p class="mute">The raw transcript is not stored.</p><button class="b big" id="rv_push">Push '+ok.length+' item'+(ok.length===1?'':'s')+(CAP.note?' + note':'')+'</button><button class="g" id="rv_bk">← Previous item</button>';
-  m.querySelectorAll('[data-go]').forEach(e=>e.onclick=()=>{CAP.back2sum=true;CAP.step=+e.dataset.go;render()});
-  $('#rv_bk').onclick=()=>{CAP.back2sum=false;CAP.step=CAP.items.length-1;render()};
+  m.querySelectorAll('[data-go]').forEach(e=>e.onclick=()=>{CAP.back2sum=true;CAP.step=+e.dataset.go;render();window.scrollTo(0,0)});
+  $('#rv_bk').onclick=()=>{CAP.back2sum=false;CAP.step=CAP.items.length-1;render();window.scrollTo(0,0)};
   $('#rv_push').onclick=pushItems;
 }
 function noteMd(title,date,lead,track,ok,tasks){
