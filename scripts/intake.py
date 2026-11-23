@@ -166,9 +166,9 @@ def prepare(root, work):
     items = []
     for rel, t in new:
         h = read_transcript(os.path.join(root, rel), rel)
-        if len(words(h['text'])) < 40:
+        if not words(h['text']):
             trs = [x for x in trs if x['path'] != rel]
-            trs.append({'id': tid(rel), 'path': rel, 'title': h['title'], 'status': 'failed', 'error': 'transcript too short', 'attempts': 3, 'seen': now_iso()})
+            trs.append({'id': tid(rel), 'path': rel, 'title': h['title'], 'status': 'failed', 'error': 'transcript is empty', 'attempts': 3, 'seen': now_iso()})
             continue
         h['rel'], h['id'], h['fp'] = rel, tid(rel), fingerprint(h['text'])
         h['words'] = len(words(h['text']))
