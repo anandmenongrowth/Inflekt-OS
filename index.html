@@ -97,10 +97,10 @@ label{font-size:14px;font-weight:600;color:var(--mute)}
 <div id="modal"><div class="in" id="mbody"></div></div>
 <div class="toast" id="toast"></div>
 
-<script src="core.js?v=7"></script>
+<script src="core.js?v=8"></script>
 <script>
 /* ============ tiny utils ============ */
-const coreOK=(typeof CORE_V!=='undefined'&&CORE_V>=7);
+const coreOK=(typeof CORE_V!=='undefined'&&CORE_V>=8);
 if(!coreOK&&!sessionStorage.getItem('rl')){sessionStorage.setItem('rl','1');(async()=>{try{for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister();for(const k of await caches.keys())await caches.delete(k)}catch(e){}location.reload()})()}
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));

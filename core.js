@@ -53,7 +53,8 @@ function briefData(d,now){
   });
   const waiting=open.filter(t=>t.status==='waiting'&&inWindow(t)).sort((a,b)=>String(a.waitSince).localeCompare(String(b.waitSince)));
   const wk=addD(td,-7);
-  const closed=all.filter(t=>t.status==='done'&&pd(t.doneOn)&&pd(t.doneOn)>=wk).sort((a,b)=>String(b.doneOn).localeCompare(String(a.doneOn)));
+  const mon=addD(td,-((td.getDay()+6)%7));   // Monday of the current week
+  const closed=all.filter(t=>t.status==='done'&&pd(t.doneOn)&&pd(t.doneOn)>=mon&&pd(t.doneOn)<=td).sort((a,b)=>String(b.doneOn).localeCompare(String(a.doneOn)));
   const pipe=(d.pipeline||[]).filter(p=>(p.status?p.status==='Warm':!/won|lost/i.test(p.stage)));
   const f=[],over=open.filter(t=>pd(t.due)&&pd(t.due)<td);
   if(over.length>=3)f.push(over.length+' tasks overdue - clear or re-date in the first 10 min.');
@@ -86,7 +87,7 @@ function buildBrief(d,now){
   b.flags.forEach(x=>{if(typeof x==='string')L.push('- '+x);else{L.push('- '+x.t);x.sub.forEach(s=>L.push('   - '+s))}});
   return L.join('\n');
 }
-const CORE_V=7;
+const CORE_V=8;
 const C={CORE_V,pad,ymd,pd,today,addD,diff,fshort,fday,uid,DOW,computeAdds,mk,byDue,isOpen,band,lastNote,statusText,dueText,briefData,buildBrief};
 if(typeof module!=='undefined'&&module.exports)module.exports=C;else Object.assign(root,C);
 })(typeof window!=='undefined'?window:globalThis);
