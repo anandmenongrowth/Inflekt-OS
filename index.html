@@ -399,6 +399,32 @@ function bindTasks(root){
       if(act==='status')statusModal(t);if(act==='note')noteModal(t);if(act==='claude')claudeModal(t);if(act==='view')viewFile(t.output);if(act==='edit')editTask(t)};
   });
 }
+/* Picture of the 3 people's tasks (no completed list), wide so it is not too tall */
+function loadH2C(){return window.html2canvas?Promise.resolve():new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=ok;s.onerror=()=>no(new Error('Could not load the screenshot helper - check internet'));document.head.appendChild(s)})}
+async function shareShot(b){
+  toast('Making picture…');
+  let box;
+  try{
+    await loadH2C();
+    if(document.fonts&&document.fonts.ready)await document.fonts.ready;
+    const cols=b.owners.map(o=>'<div style="flex:1 1 0;min-width:0">'+ownerSection(o.name,o.total,o.tasks.length?o.tasks.map(t=>taskRow(t,{acts:false})).join(''):'<div class="tr"><span></span><span></span><span class="mute">Free - pick from backlog / BD outreach</span></div>')+'</div>').join('');
+    const n=Math.max(1,b.owners.length),W=n*430+(n+1)*18;
+    box=document.createElement('div');
+    box.style.cssText='position:fixed;left:-20000px;top:0;width:'+W+'px;padding:18px;background:'+getComputedStyle(document.body).backgroundColor+';color:'+getComputedStyle(document.body).color+';font:16px/1.5 Poppins,system-ui,sans-serif;box-sizing:border-box';
+    box.innerHTML='<h1 style="margin:0 0 4px">Inflekt Growth - '+today().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})+'</h1><div style="display:flex;gap:18px;align-items:flex-start">'+cols+'</div>';
+    document.body.appendChild(box);
+    const cv=await html2canvas(box,{scale:2,backgroundColor:null,useCORS:true,windowWidth:W});
+    box.remove();box=null;
+    const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
+    const name='inflekt-today-'+ymd(today())+'.png',file=new File([blob],name,{type:'image/png'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      try{await navigator.share({files:[file],title:'Inflekt - today'});return}catch(e){if(e&&e.name==='AbortError')return}
+    }
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();
+    toast('Picture saved - attach it in WhatsApp');
+  }catch(e){toast('Could not make the picture: '+e.message)}
+  finally{if(box)box.remove()}
+}
 function renderToday(m){
   const b=briefData(S.d),c=S.d.config,text=buildBrief(S.d),td=b.date;
   const waitRows=b.waiting.map(t=>taskRow(t,{acts:false,owner:true})).join('');
@@ -407,8 +433,8 @@ function renderToday(m){
    (b.waiting.length?'<h2>Waiting on others <span class="cnt">'+b.waiting.length+'</span></h2>'+tableHtml(waitRows,'Deadline'):'')+
    (b.closed.length?'<h2>Closed this week <span class="cnt ok">'+b.closed.length+'</span></h2>'+tableHtml(b.closed.slice(0,8).map(t=>taskRow(t,{mode:'done',acts:false,owner:true})).join(''),'Done on'):'')+
    '<h2>Watch-outs</h2>'+(b.flags.length?'<ul class="flags">'+b.flags.map(f=>typeof f==='string'?'<li>'+esc(f)+'</li>':'<li>'+esc(f.t)+'<ul>'+f.sub.map(s=>'<li>'+esc(s)+'</li>').join('')+'</ul></li>').join('')+'</ul>':'<p class="mute">Nothing flagged.</p>')+
-   '<div style="margin-top:22px"><button class="b big" id="send">Copy brief + open WhatsApp group</button><button class="g" id="ref">Refresh</button></div>';
-  $('#send').onclick=()=>{copy(text);toast('Brief copied - paste in the group');window.open(c.groupLink||'https://wa.me/?text='+encodeURIComponent(text),'_blank')};
+   '<div style="margin-top:22px"><button class="b big" id="send">Share today as picture (WhatsApp)</button><button class="g" id="ref">Refresh</button></div>';
+  $('#send').onclick=()=>once($('#send'),()=>shareShot(b));
   $('#ref').onclick=loadAll;bindTasks(m);
 }
 function renderTasks(m){
